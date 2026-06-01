@@ -11,29 +11,42 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from streamlit_autorefresh import st_autorefresh
 
+
+# =========================================================
+# 기본 설정
+# =========================================================
+
 st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+    ),
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
 
+
+# =========================================================
+# 뉴스 소스
+# =========================================================
+
 SOURCES = [
-    {
-        "name": "네이버뉴스",
-        "type": "naver_news",
-        "url": "https://news.naver.com/main/list.naver?mode=LSD&mid=shm&sid1=101",
-        "base": "https://news.naver.com",
-        "encoding": "euc-kr",
-    },
     {
         "name": "네이버금융",
         "type": "naver_finance",
         "url": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
         "base": "https://finance.naver.com",
+        "encoding": "euc-kr",
+    },
+    {
+        "name": "네이버뉴스",
+        "type": "naver_news",
+        "url": "https://news.naver.com/main/list.naver?mode=LSD&mid=shm&sid1=101",
+        "base": "https://news.naver.com",
         "encoding": "euc-kr",
     },
     {
@@ -82,16 +95,21 @@ SOURCES = [
     },
 ]
 
+
+# =========================================================
+# 분류 사전
+# =========================================================
+
 POSITIVE = [
     "수주", "계약", "공급", "양산", "증설", "투자", "흑자", "호실적",
     "상향", "돌파", "승인", "성장", "강세", "급등", "최대", "확대",
-    "협력", "기대", "호재", "개선", "수혜", "신고가", "사상 최고"
+    "협력", "기대", "호재", "개선", "수혜", "신고가", "사상 최고",
 ]
 
 NEGATIVE = [
     "적자", "감산", "규제", "소송", "리콜", "중단", "악화", "급락",
     "하락", "우려", "부진", "손실", "취소", "철회", "약세", "압박",
-    "감소", "실패", "파업", "제재", "폭락"
+    "감소", "실패", "파업", "제재", "폭락",
 ]
 
 COMPANY_RULES = {
@@ -135,33 +153,68 @@ THEME_RULES = {
     "자동차": ["현대차", "기아", "전기차", "자동차"],
 }
 
+
+# =========================================================
+# 유틸
+# =========================================================
+
 def clean_text(text):
-    return re.sub(r"\s+", " ", text or "").strip()
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def clean_title_tail(title):
+    title = clean_text(title)
+
+    # 끝에 붙는 언론사 + 몇 분 전 제거
+    title = re.sub(
+        r"\s+[가-힣A-Za-z0-9·.\-]+(\s+\d+\s*분\s*전|\s+\d+\s*시간\s*전)$",
+        "",
+        title,
+    )
+
+    # 끝에 붙는 날짜 제거
+    title = re.sub(r"\s+\d{4}[-.]\d{2}[-.]\d{2}\s+\d{2}:\d{2}$", "", title)
+
+    return clean_text(title)
+
 
 def absolute_url(link, base):
+    link = str(link or "")
+
     if not link:
         return ""
+
     if link.startswith("http"):
         return link
+
     if link.startswith("//"):
         return "https:" + link
+
     if link.startswith("/"):
         return base + link
+
     return base + "/" + link
+
 
 def now_dt():
     return datetime.now(KST).replace(tzinfo=None)
 
+
 def parse_rss_dt(value):
     if not value:
         return None
+
     try:
         dt = parsedate_to_datetime(value)
+
         if dt.tzinfo:
             dt = dt.astimezone(KST)
+
         return dt.replace(tzinfo=None)
+
     except Exception:
         return None
+
 
 def parse_text_dt(text):
     text = clean_text(text)
@@ -186,16 +239,19 @@ def parse_text_dt(text):
 
     return None
 
+
 def display_dt(dt):
     if dt is None:
         return ""
+
     return dt.strftime("%m-%d %H:%M")
 
+
 def valid_title(title):
+    title = clean_text(title)
+
     if not title:
         return False
-
-    title = clean_text(title)
 
     if len(title) < 10 or len(title) > 180:
         return False
@@ -207,7 +263,8 @@ def valid_title(title):
         "개인정보처리방침", "저작권", "facebook", "facebook_gray",
         "instagram", "insta_gray", "youtube", "youtube_gray",
         "Visual-News", "©", "AZ Corp", "뉴스센터", "24시간 뉴스센터",
-        "신규", "상승", "하락", "보합", "고가", "저가"
+        "저작물 구매안내", "소셜 아이콘", "개인정보", "고객센터",
+        "신규", "상승", "하락", "보합", "고가", "저가",
     ]
 
     if any(word.lower() in title.lower() for word in bad_words):
@@ -219,10 +276,12 @@ def valid_title(title):
     if re.match(r"^\d+\.\d+", title):
         return False
 
+    # 기호가 너무 많은 가짜 제목 제거
     if len(re.sub(r"[가-힣A-Za-z0-9]", "", title)) > len(title) * 0.55:
         return False
 
     return True
+
 
 def detect_sentiment(title):
     pos = sum(word in title for word in POSITIVE)
@@ -230,9 +289,12 @@ def detect_sentiment(title):
 
     if pos > neg:
         return "🔵 긍정"
+
     if neg > pos:
         return "🔴 부정"
+
     return "⚪ 중립"
+
 
 def detect_company(title):
     found = []
@@ -247,6 +309,7 @@ def detect_company(title):
 
     return ", ".join(dict.fromkeys(found)) if found else "미분류"
 
+
 def detect_theme(title):
     found = []
 
@@ -256,8 +319,9 @@ def detect_theme(title):
 
     return ", ".join(dict.fromkeys(found)) if found else "기타"
 
+
 def make_row(title, link, media, dt):
-    title = clean_text(title)
+    title = clean_title_tail(title)
 
     return {
         "제목": title,
@@ -271,11 +335,17 @@ def make_row(title, link, media, dt):
         "링크": link,
     }
 
+
+# =========================================================
+# 수집 함수
+# =========================================================
+
 def fetch_rss(source):
     rows = []
+
     feed = feedparser.parse(source["url"])
 
-    for item in feed.entries[:120]:
+    for item in feed.entries[:150]:
         raw_title = clean_text(item.get("title", ""))
         link = item.get("link", "")
         published = item.get("published", "")
@@ -298,6 +368,7 @@ def fetch_rss(source):
 
     return rows
 
+
 def fetch_naver_finance(source):
     rows = []
 
@@ -307,31 +378,53 @@ def fetch_naver_finance(source):
         res.encoding = source.get("encoding", "euc-kr")
 
         soup = BeautifulSoup(res.text, "lxml")
-
         candidates = []
 
-        for a in soup.select("a[href*='news_read.naver']"):
-            title = clean_text(a.get_text(" "))
-            href = a.get("href", "")
+        selectors = [
+            "dl.newsList dt.articleSubject a",
+            "dl.newsList dd.articleSubject a",
+            "dt.articleSubject a",
+            "dd.articleSubject a",
+            "a[href*='news_read.naver']",
+            "a[href*='article_id=']",
+        ]
 
-            if not valid_title(title):
-                continue
+        for selector in selectors:
+            for a in soup.select(selector):
+                title = clean_text(a.get_text(" "))
+                href = a.get("href", "")
 
-            link = absolute_url(href, source["base"])
+                if not valid_title(title):
+                    continue
 
-            block = a.find_parent("li") or a.find_parent("dl") or a.find_parent()
-            block_text = clean_text(block.get_text(" ") if block else "")
+                link = absolute_url(href, source["base"])
 
-            dt = parse_text_dt(block_text)
+                block = (
+                    a.find_parent("li")
+                    or a.find_parent("dl")
+                    or a.find_parent("dd")
+                    or a.find_parent("dt")
+                    or a.find_parent()
+                )
 
-            candidates.append((title, link, dt))
+                block_text = clean_text(block.get_text(" ") if block else "")
+
+                next_sibling = block.find_next_sibling() if block else None
+                if next_sibling:
+                    block_text += " " + clean_text(next_sibling.get_text(" "))
+
+                dt = parse_text_dt(block_text)
+
+                candidates.append((title, link, dt))
 
         seen = set()
 
-        for title, link, dt in candidates[:150]:
+        for title, link, dt in candidates[:200]:
             key = title.lower().replace(" ", "")
+
             if key in seen:
                 continue
+
             seen.add(key)
             rows.append(make_row(title, link, source["name"], dt))
 
@@ -339,6 +432,7 @@ def fetch_naver_finance(source):
         pass
 
     return rows
+
 
 def fetch_naver_news(source):
     rows = []
@@ -349,7 +443,6 @@ def fetch_naver_news(source):
         res.encoding = source.get("encoding", "euc-kr")
 
         soup = BeautifulSoup(res.text, "lxml")
-
         candidates = []
 
         for a in soup.select("a[href*='n.news.naver.com'], a[href*='news.naver.com/main/read']"):
@@ -370,10 +463,12 @@ def fetch_naver_news(source):
 
         seen = set()
 
-        for title, link, dt in candidates[:150]:
+        for title, link, dt in candidates[:200]:
             key = title.lower().replace(" ", "")
+
             if key in seen:
                 continue
+
             seen.add(key)
             rows.append(make_row(title, link, source["name"], dt))
 
@@ -381,6 +476,7 @@ def fetch_naver_news(source):
         pass
 
     return rows
+
 
 def fetch_generic(source):
     rows = []
@@ -395,7 +491,6 @@ def fetch_generic(source):
             res.encoding = res.apparent_encoding
 
         soup = BeautifulSoup(res.text, "lxml")
-
         candidates = []
         allow = source.get("allow", [])
 
@@ -423,10 +518,12 @@ def fetch_generic(source):
 
         seen = set()
 
-        for title, link, dt in candidates[:150]:
+        for title, link, dt in candidates[:200]:
             key = title.lower().replace(" ", "")
+
             if key in seen:
                 continue
+
             seen.add(key)
             rows.append(make_row(title, link, source["name"], dt))
 
@@ -434,6 +531,7 @@ def fetch_generic(source):
         pass
 
     return rows
+
 
 @st.cache_data(ttl=10)
 def load_news():
@@ -458,12 +556,17 @@ def load_news():
     df = df.drop_duplicates(subset=["중복키"], keep="first")
     df = df.drop(columns=["중복키"])
 
-    # 시간 있는 기사 먼저 최신순, 시간 없는 기사는 아래쪽
+    # 시간 있는 기사: 최신순 / 시간 없는 기사: 아래쪽
     df["정렬일자_보정"] = df["정렬일자"].fillna(datetime(1900, 1, 1))
     df = df.sort_values("정렬일자_보정", ascending=False)
     df = df.drop(columns=["정렬일자_보정"])
 
     return df
+
+
+# =========================================================
+# 화면
+# =========================================================
 
 st.title("📰 뉴스 터미널")
 st.caption("10초 자동갱신 | 제목 클릭 시 원문 이동")
@@ -524,16 +627,17 @@ with st.expander("매체별 최신 시간 / 수집 개수 확인"):
         df.groupby("매체")
         .agg(
             최신=("정렬일자", "max"),
-            개수=("제목", "count")
+            개수=("제목", "count"),
         )
         .reset_index()
     )
+
     check["최신"] = check["최신"].apply(display_dt)
     st.dataframe(check, use_container_width=True, hide_index=True)
 
 rows_html = ""
 
-for _, row in filtered.head(900).iterrows():
+for _, row in filtered.head(1000).iterrows():
     title = html.escape(str(row["표시제목"]))
     full_title = html.escape(str(row["제목"]))
     link = html.escape(str(row["링크"]))
