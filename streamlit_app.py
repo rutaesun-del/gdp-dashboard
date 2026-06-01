@@ -9,16 +9,16 @@ from urllib.parse import quote
 from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="뉴스 터미널", layout="wide")
-st_autorefresh(interval=10000, key="refresh")
+st_autorefresh(interval=20000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
-DB_PATH = "news_terminal_final.db"
+DB_PATH = "news_terminal_final_v2.db"
 KEEP_HOURS = 24
 NAVER_FINANCE_PAGES = 20
 NAVER_NEWS_PAGES = 10
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
 
@@ -48,14 +48,12 @@ SOURCES = [
     {"name":"연합뉴스","type":"generic","url":"https://www.yna.co.kr/economy/all","base":"https://www.yna.co.kr","encoding":"utf-8"},
     {"name":"뉴스1","type":"generic","url":"https://www.news1.kr/economy","base":"https://www.news1.kr","encoding":"utf-8"},
 
-    # 보완용 RSS
-    {"name":"더벨","type":"rss","url":google_rss("site:thebell.co.kr 증시 OR 반도체 OR 투자 OR 기업")},
-    {"name":"블로터","type":"rss","url":google_rss("site:bloter.net 반도체 OR AI OR 기업 OR 증시")},
-    {"name":"비즈워치","type":"rss","url":google_rss("site:bizwatch.co.kr 증시 OR 기업 OR 반도체 OR 투자")},
-    {"name":"뉴시스","type":"rss","url":google_rss("site:newsis.com 증시 OR 코스피 OR 코스닥 OR 기업")},
-    {"name":"헤럴드경제","type":"rss","url":google_rss("site:heraldcorp.com 증시 OR 기업 OR 반도체")},
-    {"name":"국민일보","type":"rss","url":google_rss("site:kmib.co.kr 증시 OR 기업 OR 경제")},
-    {"name":"야후뉴스-한국주식","type":"rss","url":google_rss("site:finance.yahoo.com Samsung Electronics OR SK Hynix OR KOSPI OR KOSDAQ OR Hyundai Motor OR Korea stock")},
+    {"name":"더벨","type":"rss","url":google_rss("site:thebell.co.kr 기업 OR 투자 OR 증시 OR 반도체")},
+    {"name":"블로터","type":"rss","url":google_rss("site:bloter.net 기업 OR AI OR 반도체 OR 증시")},
+    {"name":"비즈워치","type":"rss","url":google_rss("site:bizwatch.co.kr 기업 OR 증시 OR 투자")},
+    {"name":"뉴시스","type":"rss","url":google_rss("site:newsis.com 경제 OR 증시 OR 기업")},
+    {"name":"헤럴드경제","type":"rss","url":google_rss("site:heraldcorp.com 경제 OR 증시 OR 기업")},
+    {"name":"국민일보","type":"rss","url":google_rss("site:kmib.co.kr 경제 OR 증시 OR 기업")},
 ]
 
 POSITIVE = [
@@ -105,19 +103,12 @@ THEME_RULES = {
     "국장":["코스피","코스닥","증시","공시","ETF","상장","시총"],
 }
 
-STOCK_WORDS = [
-    "코스피","코스닥","증시","주식","상장","공시","ETF","삼성전자","SK하이닉스","하이닉스",
-    "반도체","HBM","엔비디아","TSMC","PCB","현대차","기아","카카오","네이버","LG","삼성",
-    "SK","한화","두산","수주","실적","매출","영업익","투자","증설","금리","환율","증권",
-    "목표가","기관","외국인","개미","순매수","순매도","급등","급락","신고가","저평가",
-    "상장사","시총","밸류업","배당","자사주","수혜","테마","로봇","AI","원전","조선"
-]
-
 BAD_TITLE_WORDS = [
-    "포토","화보","기자간담회","작가간담회","기자 모집","수습기자","마감","채용","공모","공지",
-    "알림","로그인","구독","전체보기","이전","다음","메뉴","검색","바로가기","댓글","공유",
-    "기사목록","많이 본 뉴스","인기검색어","서비스 약관","개인정보","저작권","facebook",
-    "instagram","youtube","오늘의 증시일정","24시간 뉴스센터","광고","newsletter",
+    "포토","화보","사진","영상","기자간담회","작가간담회","기자 모집","수습기자",
+    "마감","채용","공모","공지","알림","로그인","구독","전체보기","이전","다음",
+    "메뉴","검색","바로가기","댓글","공유","기사목록","많이 본 뉴스","인기검색어",
+    "서비스 약관","개인정보","저작권","facebook","instagram","youtube",
+    "오늘의 증시일정","24시간 뉴스센터","광고","newsletter",
     "credit cards","retire","retirement","wedding expenses","hotel credit","municipal bond"
 ]
 
@@ -181,17 +172,13 @@ def clean_title_tail(title):
 
 def valid_title(title):
     title = clean_text(title)
-    if not title or len(title) < 8 or len(title) > 200:
+    if not title or len(title) < 8 or len(title) > 220:
         return False
     if any(w.lower() in title.lower() for w in BAD_TITLE_WORDS):
         return False
     if re.match(r"^\d+\s*위[, ]", title):
         return False
     return True
-
-def is_stock_related(title):
-    text = title.lower()
-    return any(w.lower() in text for w in STOCK_WORDS)
 
 def detect_sentiment(title):
     pos = sum(w in title for w in POSITIVE)
@@ -231,7 +218,6 @@ def make_row(title, link, media, dt):
         "sentiment": detect_sentiment(title),
         "company": detect_company(title),
         "theme": detect_theme(title),
-        "stock_related": 1 if is_stock_related(title) else 0,
         "media": media,
         "display_dt": display_dt(dt),
         "sort_dt": dt,
@@ -248,8 +234,7 @@ def fetch_rss(source):
         link = item.get("link", "")
         published = item.get("published") or item.get("updated") or ""
 
-        if not valid_title(raw): 
-            continue
+        if not valid_title(raw): continue
 
         title = raw
         media = source["name"]
@@ -383,7 +368,6 @@ def init_db():
         sentiment TEXT,
         company TEXT,
         theme TEXT,
-        stock_related INTEGER,
         media TEXT,
         display_dt TEXT,
         sort_dt TEXT,
@@ -399,11 +383,10 @@ def save_rows(rows):
     cur = con.cursor()
     for r in rows:
         cur.execute("""
-        INSERT OR IGNORE INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             r["title"], r["display_title"], r["sentiment"], r["company"], r["theme"],
-            r["stock_related"], r["media"], r["display_dt"],
-            r["sort_dt"].isoformat() if r["sort_dt"] else "",
+            r["media"], r["display_dt"], r["sort_dt"].isoformat(),
             r["link"], r["inserted_at"].isoformat()
         ))
     con.commit()
@@ -422,13 +405,16 @@ def load_db():
     df = pd.read_sql_query("SELECT * FROM news", con)
     con.close()
 
-    if df.empty: return df
+    if df.empty:
+        return df
 
     df["sort_dt_real"] = pd.to_datetime(df["sort_dt"], errors="coerce")
-    df["sort_key"] = df["sort_dt_real"]
-    return df.sort_values("sort_key", ascending=False)
+    df = df.dropna(subset=["sort_dt_real"])
+    df = df.sort_values("sort_dt_real", ascending=False)
 
-@st.cache_data(ttl=10)
+    return df
+
+@st.cache_data(ttl=20)
 def refresh():
     init_db()
     save_rows(fetch_all())
@@ -436,7 +422,7 @@ def refresh():
     return load_db()
 
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 날짜 없는 기사 제외")
+st.caption(f"20초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 날짜 없는 기사 제외 | 일자 내림차순")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
     st.cache_data.clear()
@@ -450,10 +436,7 @@ if df.empty:
     st.warning("뉴스가 없습니다.")
     st.stop()
 
-c0, c1, c2, c3, c4, c5 = st.columns([1,1,1,1,1,2])
-
-with c0:
-    scope_filter = st.selectbox("범위", ["전체", "주식관련만"])
+c1, c2, c3, c4, c5 = st.columns([1,1,1,1,2])
 
 with c1:
     sentiment_filter = st.selectbox("감성", ["전체", "🔵 긍정", "⚪ 중립", "🔴 부정"])
@@ -471,9 +454,6 @@ with c5:
     search = st.text_input("검색")
 
 filtered = df.copy()
-
-if scope_filter == "주식관련만":
-    filtered = filtered[filtered["stock_related"] == 1]
 
 if sentiment_filter != "전체":
     filtered = filtered[filtered["sentiment"] == sentiment_filter]
@@ -499,8 +479,7 @@ st.subheader(f"전체 뉴스 {len(filtered)}개")
 
 with st.expander("매체별 수집 개수 확인"):
     check = df.groupby("media").agg(
-        전체=("title","count"),
-        주식관련=("stock_related","sum")
+        전체=("title","count")
     ).reset_index().sort_values("전체", ascending=False)
     st.dataframe(check, use_container_width=True, hide_index=True)
 
