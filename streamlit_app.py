@@ -25,7 +25,7 @@ st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
 
-DB_PATH = "news_terminal_final_real.db"
+DB_PATH = "news_terminal_last_final.db"
 KEEP_HOURS = 24
 
 TIMEOUT = 5
@@ -63,31 +63,37 @@ SOURCES = [
         "base": "https://news.naver.com",
         "encoding": "euc-kr",
     },
+    {
+        "name": "다음금융",
+        "type": "daum_finance",
+        "url": "https://finance.daum.net/news",
+        "base": "https://finance.daum.net",
+        "encoding": "utf-8",
+    },
 
     {"name": "한국경제", "type": "rss", "url": "https://www.hankyung.com/feed/all-news"},
     {"name": "한국경제-증권", "type": "rss", "url": "https://www.hankyung.com/feed/finance"},
     {"name": "매일경제", "type": "rss", "url": "https://www.mk.co.kr/rss/30000001/"},
     {"name": "구글뉴스-경제", "type": "rss", "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko"},
 
-    {"name": "다음경제", "type": "generic", "url": "https://finance.daum.net/news#economy", "base": "https://finance.daum.net", "encoding": "utf-8", "allow": ["v.daum.net", "news.v.daum.net"]},
-    {"name": "아시아경제", "type": "generic", "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99", "base": "https://www.asiae.co.kr", "encoding": "utf-8", "allow": ["/article/"]},
-    {"name": "한국일보", "type": "generic", "url": "https://www.hankookilbo.com/News/Economy", "base": "https://www.hankookilbo.com", "encoding": "utf-8", "allow": ["/News/Read"]},
-    {"name": "전자신문", "type": "generic", "url": "https://www.etnews.com/news/section.html?id1=20", "base": "https://www.etnews.com", "encoding": "utf-8", "allow": ["/news/article.html"]},
-    {"name": "ZDNet", "type": "generic", "url": "https://zdnet.co.kr/news/?lstcode=0000", "base": "https://zdnet.co.kr", "encoding": "utf-8", "allow": ["/view/"]},
-    {"name": "디지털데일리", "type": "generic", "url": "https://www.ddaily.co.kr/page/list/0/0", "base": "https://www.ddaily.co.kr", "encoding": "utf-8", "allow": ["/page/view/"]},
-    {"name": "조선비즈", "type": "generic", "url": "https://biz.chosun.com/stock/", "base": "https://biz.chosun.com", "encoding": "utf-8", "allow": ["/stock/", "/industry/", "/it-science/"]},
     {"name": "서울경제", "type": "generic", "url": "https://www.sedaily.com/NewsList/GA", "base": "https://www.sedaily.com", "encoding": "utf-8", "allow": ["/NewsView/"]},
-    {"name": "파이낸셜뉴스", "type": "generic", "url": "https://www.fnnews.com/section/002000000", "base": "https://www.fnnews.com", "encoding": "utf-8", "allow": ["/news/"]},
-    {"name": "이데일리", "type": "generic", "url": "https://www.edaily.co.kr/News/stock", "base": "https://www.edaily.co.kr", "encoding": "utf-8", "allow": ["/News/Read"]},
+    {"name": "이데일리", "type": "generic", "url": "https://www.edaily.co.kr/News/Stock", "base": "https://www.edaily.co.kr", "encoding": "utf-8", "allow": ["/News/Read"]},
     {"name": "머니투데이", "type": "generic", "url": "https://news.mt.co.kr/newsList.html?pDepth1=stock", "base": "https://news.mt.co.kr", "encoding": "utf-8", "allow": ["/mtview.php", "/newsView.html"]},
+    {"name": "아시아경제", "type": "generic", "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99", "base": "https://www.asiae.co.kr", "encoding": "utf-8", "allow": ["/article/"]},
+    {"name": "파이낸셜뉴스", "type": "generic", "url": "https://www.fnnews.com/section/002000000", "base": "https://www.fnnews.com", "encoding": "utf-8", "allow": ["/news/"]},
+    {"name": "조선비즈", "type": "generic", "url": "https://biz.chosun.com/stock/", "base": "https://biz.chosun.com", "encoding": "utf-8", "allow": ["/stock/", "/industry/", "/it-science/"]},
+    {"name": "전자신문", "type": "generic", "url": "https://www.etnews.com/news/section.html?id1=20", "base": "https://www.etnews.com", "encoding": "utf-8", "allow": ["/news/article.html"]},
+    {"name": "ZDNet", "type": "generic", "url": "https://zdnet.co.kr/news/", "base": "https://zdnet.co.kr", "encoding": "utf-8", "allow": ["/view/"]},
+    {"name": "디지털데일리", "type": "generic", "url": "https://www.ddaily.co.kr/", "base": "https://www.ddaily.co.kr", "encoding": "utf-8", "allow": ["/page/view/"]},
     {"name": "연합뉴스", "type": "generic", "url": "https://www.yna.co.kr/economy/all", "base": "https://www.yna.co.kr", "encoding": "utf-8", "allow": ["/view/"]},
     {"name": "뉴스1", "type": "generic", "url": "https://www.news1.kr/economy", "base": "https://www.news1.kr", "encoding": "utf-8", "allow": ["/articles/"]},
+    {"name": "한국일보", "type": "generic", "url": "https://www.hankookilbo.com/News/Economy", "base": "https://www.hankookilbo.com", "encoding": "utf-8", "allow": ["/News/Read"]},
 
-    {"name": "더벨", "type": "rss", "url": google_rss("site:thebell.co.kr 기업 OR 투자 OR 증시 OR 반도체")},
-    {"name": "블로터", "type": "rss", "url": google_rss("site:bloter.net 기업 OR AI OR 반도체 OR 증시")},
-    {"name": "비즈워치", "type": "rss", "url": google_rss("site:bizwatch.co.kr 기업 OR 증시 OR 투자")},
-    {"name": "뉴시스", "type": "rss", "url": google_rss("site:newsis.com 경제 OR 증시 OR 기업")},
-    {"name": "헤럴드경제", "type": "rss", "url": google_rss("site:heraldcorp.com 경제 OR 증시 OR 기업")},
+    {"name": "뉴시스", "type": "rss", "url": google_rss("site:newsis.com 경제 OR 증시 OR 기업 OR 반도체")},
+    {"name": "헤럴드경제", "type": "rss", "url": google_rss("site:heraldcorp.com 경제 OR 증시 OR 기업 OR 반도체")},
+    {"name": "비즈워치", "type": "rss", "url": google_rss("site:bizwatch.co.kr 증시 OR 투자 OR 기업 OR 반도체")},
+    {"name": "블로터", "type": "rss", "url": google_rss("site:bloter.net AI OR 반도체 OR 증시 OR 기업")},
+    {"name": "더벨", "type": "rss", "url": google_rss("site:thebell.co.kr 투자 OR 증시 OR 반도체 OR 기업")},
     {"name": "국민일보", "type": "rss", "url": google_rss("site:kmib.co.kr 경제 OR 증시 OR 기업")},
 ]
 
@@ -353,6 +359,45 @@ def fetch_rss(source):
     return rows
 
 
+def fetch_daum_finance(source):
+    rows, seen = [], set()
+
+    rss_list = [
+        google_rss("site:finance.daum.net 경제 OR 증시 OR 주식 OR 기업"),
+        google_rss("site:v.daum.net 경제 OR 증시 OR 주식 OR 반도체 OR 기업"),
+    ]
+
+    for rss_url in rss_list:
+        feed = feedparser.parse(rss_url)
+
+        for item in feed.entries[:100]:
+            raw = clean_text(item.get("title", ""))
+            link = item.get("link", "")
+            published = item.get("published") or item.get("updated") or ""
+
+            if not valid_title(raw):
+                continue
+
+            title = raw
+            media = "다음금융"
+
+            if " - " in raw:
+                title, origin = raw.rsplit(" - ", 1)
+                title = clean_text(title)
+                media = clean_text(origin) or "다음금융"
+
+            key = title.lower().replace(" ", "")
+            if key in seen:
+                continue
+            seen.add(key)
+
+            row = make_row(title, link, media, parse_rss_dt(published))
+            if row:
+                rows.append(row)
+
+    return rows
+
+
 def fetch_naver_finance(source):
     rows, seen = [], set()
 
@@ -509,6 +554,8 @@ def fetch_one(source):
         return fetch_naver_finance(source)
     if source["type"] == "naver_news":
         return fetch_naver_news(source)
+    if source["type"] == "daum_finance":
+        return fetch_daum_finance(source)
     if source["type"] == "rss":
         return fetch_rss(source)
     return fetch_generic(source)
@@ -560,7 +607,17 @@ def save_rows(rows):
 
     for r in rows:
         cur.execute("""
-        INSERT OR IGNORE INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(link) DO UPDATE SET
+            title=excluded.title,
+            display_title=excluded.display_title,
+            sentiment=excluded.sentiment,
+            company=excluded.company,
+            theme=excluded.theme,
+            media=excluded.media,
+            display_dt=excluded.display_dt,
+            sort_dt=excluded.sort_dt,
+            inserted_at=excluded.inserted_at
         """, (
             r["title"],
             r["display_title"],
@@ -600,7 +657,13 @@ def load_db():
     df["inserted_real"] = pd.to_datetime(df["inserted_at"], errors="coerce")
     df["sort_key"] = df["sort_dt_real"].fillna(df["inserted_real"])
 
-    return df.sort_values("sort_key", ascending=False)
+    df = df.sort_values(
+        by="sort_key",
+        ascending=False,
+        kind="mergesort"
+    ).reset_index(drop=True)
+
+    return df
 
 
 @st.cache_data(ttl=10)
@@ -616,7 +679,7 @@ def refresh():
 # =========================================================
 
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 기사시간 없으면 수집시간 기준 정렬 | 제목 클릭 시 원문 이동")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 시간순 정렬 | 제목 클릭 시 원문 이동")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
     st.cache_data.clear()
