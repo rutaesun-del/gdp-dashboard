@@ -10,6 +10,7 @@ import streamlit.components.v1 as components
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
+from urllib.parse import quote
 from streamlit_autorefresh import st_autorefresh
 
 
@@ -21,16 +22,19 @@ DB_PATH = "news_terminal.db"
 KEEP_HOURS = 24
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
 
-# =========================================================
-# 무료 최선 구조
-# 1) 네이버금융 직접 수집
-# 2) RSS 직접 수집
-# 3) 구글뉴스 site 검색으로 매체 보완
-# =========================================================
+CORE_QUERY = (
+    "코스피 OR 코스닥 OR 증시 OR 국내증시 OR 한국증시 OR 삼성전자 OR SK하이닉스 "
+    "OR 반도체 OR HBM OR 엔비디아 OR TSMC OR AI OR PCB OR 현대차 OR 기아 "
+    "OR 카카오 OR 네이버 OR LG OR 주식 OR ETF OR 공시 OR 수주 OR 실적"
+)
+
+def google_rss(query):
+    return f"https://news.google.com/rss/search?q={quote(query)}&hl=ko&gl=KR&ceid=KR:ko"
+
 
 SOURCES = [
     {
@@ -40,26 +44,38 @@ SOURCES = [
         "base": "https://finance.naver.com",
         "encoding": "euc-kr",
     },
-    {"name": "구글뉴스-경제", "type": "rss", "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "네이버뉴스", "type": "rss", "url": "https://news.google.com/rss/search?q=site:n.news.naver.com%20경제&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "다음뉴스", "type": "rss", "url": "https://news.google.com/rss/search?q=site:v.daum.net%20경제&hl=ko&gl=KR&ceid=KR:ko"},
+
+    {"name": "네이버뉴스", "type": "rss", "url": google_rss(f"site:n.news.naver.com ({CORE_QUERY})")},
+    {"name": "구글뉴스", "type": "rss", "url": google_rss(CORE_QUERY)},
+    {"name": "다음뉴스", "type": "rss", "url": google_rss(f"site:v.daum.net ({CORE_QUERY})")},
+
     {"name": "한국경제", "type": "rss", "url": "https://www.hankyung.com/feed/all-news"},
     {"name": "한국경제-증권", "type": "rss", "url": "https://www.hankyung.com/feed/finance"},
     {"name": "매일경제", "type": "rss", "url": "https://www.mk.co.kr/rss/30000001/"},
-    {"name": "아시아경제", "type": "rss", "url": "https://news.google.com/rss/search?q=site:asiae.co.kr%20경제&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "한국일보", "type": "rss", "url": "https://news.google.com/rss/search?q=site:hankookilbo.com%20경제&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "전자신문", "type": "rss", "url": "https://news.google.com/rss/search?q=site:etnews.com%20반도체%20OR%20AI%20OR%20경제&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "ZDNet", "type": "rss", "url": "https://news.google.com/rss/search?q=site:zdnet.co.kr%20AI%20OR%20반도체%20OR%20경제&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "디지털데일리", "type": "rss", "url": "https://news.google.com/rss/search?q=site:ddaily.co.kr%20반도체%20OR%20AI%20OR%20경제&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "조선비즈", "type": "rss", "url": "https://news.google.com/rss/search?q=site:biz.chosun.com%20경제%20OR%20증시%20OR%20반도체&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "서울경제", "type": "rss", "url": "https://news.google.com/rss/search?q=site:sedaily.com%20경제%20OR%20증시%20OR%20반도체&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "파이낸셜뉴스", "type": "rss", "url": "https://news.google.com/rss/search?q=site:fnnews.com%20경제%20OR%20증시&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "이데일리", "type": "rss", "url": "https://news.google.com/rss/search?q=site:edaily.co.kr%20경제%20OR%20증시&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "머니투데이", "type": "rss", "url": "https://news.google.com/rss/search?q=site:mt.co.kr%20경제%20OR%20증시&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "연합뉴스", "type": "rss", "url": "https://news.google.com/rss/search?q=site:yna.co.kr%20경제%20OR%20증시&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "뉴스1", "type": "rss", "url": "https://news.google.com/rss/search?q=site:news1.kr%20경제%20OR%20증시&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name": "Yahoo Finance", "type": "rss", "url": "https://finance.yahoo.com/news/rssindex"},
+
+    {"name": "아시아경제", "type": "rss", "url": google_rss(f"site:asiae.co.kr ({CORE_QUERY})")},
+    {"name": "한국일보", "type": "rss", "url": google_rss(f"site:hankookilbo.com ({CORE_QUERY})")},
+    {"name": "전자신문", "type": "rss", "url": google_rss(f"site:etnews.com ({CORE_QUERY})")},
+    {"name": "ZDNet", "type": "rss", "url": google_rss(f"site:zdnet.co.kr ({CORE_QUERY})")},
+    {"name": "디지털데일리", "type": "rss", "url": google_rss(f"site:ddaily.co.kr ({CORE_QUERY})")},
+    {"name": "조선비즈", "type": "rss", "url": google_rss(f"site:biz.chosun.com ({CORE_QUERY})")},
+    {"name": "서울경제", "type": "rss", "url": google_rss(f"site:sedaily.com ({CORE_QUERY})")},
+    {"name": "파이낸셜뉴스", "type": "rss", "url": google_rss(f"site:fnnews.com ({CORE_QUERY})")},
+    {"name": "이데일리", "type": "rss", "url": google_rss(f"site:edaily.co.kr ({CORE_QUERY})")},
+    {"name": "머니투데이", "type": "rss", "url": google_rss(f"site:mt.co.kr ({CORE_QUERY})")},
+    {"name": "연합뉴스", "type": "rss", "url": google_rss(f"site:yna.co.kr ({CORE_QUERY})")},
+    {"name": "뉴스1", "type": "rss", "url": google_rss(f"site:news1.kr ({CORE_QUERY})")},
+
+    {
+        "name": "야후뉴스",
+        "type": "rss",
+        "url": google_rss(
+            "site:finance.yahoo.com "
+            "(Samsung Electronics OR SK Hynix OR Korea stock OR KOSPI OR KOSDAQ OR Samsung SDI OR Hyundai Motor)"
+        ),
+    },
 ]
+
 
 POSITIVE = [
     "수주", "계약", "공급", "양산", "증설", "투자", "흑자", "호실적",
@@ -68,8 +84,9 @@ POSITIVE = [
     "수혜", "신고가", "사상 최고", "반등", "회복", "증가", "확보",
     "선정", "채택", "성과", "호황", "순항", "출시", "개발", "상승",
     "랠리", "점유율 확대", "목표가 상향", "실적 개선", "턴어라운드",
-    "완판", "대박", "재평가", "본격화", "흑자전환", "실적 기대",
-    "매출 증가", "영업익 증가", "수익성 개선", "주가 상승", "상장 추진",
+    "완판", "대박", "재평가", "본격화", "흑자전환", "매출 증가",
+    "영업익 증가", "수익성 개선", "상장 추진", "대규모", "인수",
+    "합병", "신사업", "국산화", "고성장", "수혜주",
 ]
 
 NEGATIVE = [
@@ -81,8 +98,8 @@ NEGATIVE = [
 ]
 
 COMPANY_RULES = {
-    "삼성전자": ["삼성전자", "삼성"],
-    "SK하이닉스": ["SK하이닉스", "하이닉스"],
+    "삼성전자": ["삼성전자", "Samsung Electronics"],
+    "SK하이닉스": ["SK하이닉스", "하이닉스", "SK Hynix"],
     "엔비디아": ["엔비디아", "NVIDIA", "루빈", "Rubin", "GPU"],
     "TSMC": ["TSMC"],
     "한미반도체": ["한미반도체", "TC본더", "본더"],
@@ -95,7 +112,7 @@ COMPANY_RULES = {
     "마이크론": ["마이크론", "Micron"],
     "AMD": ["AMD"],
     "브로드컴": ["브로드컴", "Broadcom"],
-    "현대차": ["현대차", "현대자동차"],
+    "현대차": ["현대차", "현대자동차", "Hyundai Motor"],
     "기아": ["기아"],
     "카카오": ["카카오"],
     "네이버": ["네이버", "NAVER"],
@@ -119,6 +136,7 @@ THEME_RULES = {
     "로봇": ["옵티머스", "휴머노이드", "로봇"],
     "2차전지": ["배터리", "2차전지", "전고체"],
     "자동차": ["현대차", "기아", "전기차", "자동차"],
+    "국장": ["코스피", "코스닥", "증시", "공시", "ETF"],
 }
 
 
@@ -131,19 +149,6 @@ def clean_title_tail(title):
     title = re.sub(r"\s+[가-힣A-Za-z0-9·.\-]+(\s+\d+\s*분\s*전|\s+\d+\s*시간\s*전)$", "", title)
     title = re.sub(r"\s+\d{4}[-.]\d{2}[-.]\d{2}\s+\d{2}:\d{2}$", "", title)
     return clean_text(title)
-
-
-def absolute_url(link, base):
-    link = str(link or "")
-    if not link:
-        return ""
-    if link.startswith("http"):
-        return link
-    if link.startswith("//"):
-        return "https:" + link
-    if link.startswith("/"):
-        return base + link
-    return base + "/" + link
 
 
 def now_dt():
@@ -202,8 +207,7 @@ def valid_title(title):
         "로그인", "구독", "전체보기", "이전", "다음", "메뉴", "검색",
         "바로가기", "댓글", "공유", "기사목록", "많이 본 뉴스",
         "인기검색어", "뉴스 검색", "오늘의 증시일정", "서비스 약관",
-        "개인정보처리방침", "저작권", "facebook", "facebook_gray",
-        "instagram", "insta_gray", "youtube", "youtube_gray",
+        "개인정보처리방침", "저작권", "facebook", "instagram", "youtube",
         "Visual-News", "©", "AZ Corp", "뉴스센터", "24시간 뉴스센터",
         "저작물 구매안내", "소셜 아이콘", "개인정보", "고객센터",
         "신규", "상승", "하락", "보합", "고가", "저가",
@@ -256,8 +260,26 @@ def detect_theme(title):
     return ", ".join(dict.fromkeys(found)) if found else "기타"
 
 
+def is_korean_market_related(title, media):
+    text = f"{title} {media}".lower()
+
+    allow = [
+        "코스피", "코스닥", "국내", "한국", "증시", "주식", "상장", "공시",
+        "etf", "삼성전자", "sk하이닉스", "하이닉스", "반도체", "hbm",
+        "엔비디아", "tsmc", "pcb", "현대차", "기아", "카카오", "네이버",
+        "lg", "수주", "실적", "매출", "영업익", "투자", "증설", "금리",
+        "환율", "정부", "산업", "경제", "증권",
+        "samsung", "hynix", "hyundai", "kospi", "kosdaq",
+    ]
+
+    return any(w.lower() in text for w in allow)
+
+
 def make_row(title, link, media, dt):
     title = clean_title_tail(title)
+
+    if not is_korean_market_related(title, media):
+        return None
 
     return {
         "title": title,
@@ -288,18 +310,33 @@ def fetch_rss(source):
         title = raw_title
         media = source["name"]
 
-        if source["name"].startswith("구글뉴스") and " - " in raw_title:
-            title, origin_media = raw_title.rsplit(" - ", 1)
-            title = clean_text(title)
-            if origin_media:
-                media = clean_text(origin_media)
+        if source["name"] in ["구글뉴스", "구글뉴스-경제"] or source["url"].startswith("https://news.google.com"):
+            if " - " in raw_title:
+                title, origin_media = raw_title.rsplit(" - ", 1)
+                title = clean_text(title)
+                media = clean_text(origin_media) or source["name"]
 
         if not valid_title(title):
             continue
 
-        rows.append(make_row(title, link, media, parse_rss_dt(published)))
+        row = make_row(title, link, media, parse_rss_dt(published))
+        if row:
+            rows.append(row)
 
     return rows
+
+
+def absolute_url(link, base):
+    link = str(link or "")
+    if not link:
+        return ""
+    if link.startswith("http"):
+        return link
+    if link.startswith("//"):
+        return "https:" + link
+    if link.startswith("/"):
+        return base + link
+    return base + "/" + link
 
 
 def fetch_naver_finance(source):
@@ -331,7 +368,15 @@ def fetch_naver_finance(source):
                     continue
 
                 link = absolute_url(href, source["base"])
-                block = a.find_parent("li") or a.find_parent("dl") or a.find_parent("dd") or a.find_parent("dt") or a.find_parent()
+
+                block = (
+                    a.find_parent("li")
+                    or a.find_parent("dl")
+                    or a.find_parent("dd")
+                    or a.find_parent("dt")
+                    or a.find_parent()
+                )
+
                 block_text = clean_text(block.get_text(" ") if block else "")
 
                 next_sibling = block.find_next_sibling() if block else None
@@ -349,7 +394,10 @@ def fetch_naver_finance(source):
             if key in seen:
                 continue
             seen.add(key)
-            rows.append(make_row(title, link, source["name"], dt))
+
+            row = make_row(title, link, source["name"], dt)
+            if row:
+                rows.append(row)
 
     except Exception:
         pass
@@ -407,16 +455,9 @@ def save_rows(rows):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                r["title"],
-                r["display_title"],
-                r["sentiment"],
-                r["company"],
-                r["theme"],
-                r["media"],
-                r["display_dt"],
-                sort_dt,
-                r["link"],
-                inserted_at,
+                r["title"], r["display_title"], r["sentiment"], r["company"],
+                r["theme"], r["media"], r["display_dt"], sort_dt,
+                r["link"], inserted_at,
             ),
         )
 
@@ -446,7 +487,6 @@ def load_from_db():
     df["sort_key"] = df["sort_dt_real"].fillna(df["inserted_real"])
 
     df = df.sort_values("sort_key", ascending=False)
-
     return df
 
 
@@ -460,7 +500,7 @@ def refresh_news():
 
 
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 제목 클릭 시 원문 이동")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 국장/경제/증시 중심")
 
 if st.button("캐시 초기화 / 강제 새로고침"):
     st.cache_data.clear()
@@ -525,25 +565,16 @@ with st.expander("매체별 수집 개수 확인"):
 rows_html = ""
 
 for _, row in filtered.head(1200).iterrows():
-    title = html.escape(str(row["display_title"]))
-    full_title = html.escape(str(row["title"]))
-    link = html.escape(str(row["link"]))
-    sentiment = html.escape(str(row["sentiment"]))
-    company = html.escape(str(row["company"]))
-    theme = html.escape(str(row["theme"]))
-    media = html.escape(str(row["media"]))
-    date = html.escape(str(row["display_dt"]))
-
     rows_html += f"""
     <tr>
-        <td class="title" title="{full_title}">
-            <a href="{link}" target="_blank">{title}</a>
+        <td class="title" title="{html.escape(str(row["title"]))}">
+            <a href="{html.escape(str(row["link"]))}" target="_blank">{html.escape(str(row["display_title"]))}</a>
         </td>
-        <td class="sentiment">{sentiment}</td>
-        <td class="company">{company}</td>
-        <td class="theme">{theme}</td>
-        <td class="media">{media}</td>
-        <td class="date">{date}</td>
+        <td class="sentiment">{html.escape(str(row["sentiment"]))}</td>
+        <td class="company">{html.escape(str(row["company"]))}</td>
+        <td class="theme">{html.escape(str(row["theme"]))}</td>
+        <td class="media">{html.escape(str(row["media"]))}</td>
+        <td class="date">{html.escape(str(row["display_dt"]))}</td>
     </tr>
     """
 
