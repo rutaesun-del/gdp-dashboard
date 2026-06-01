@@ -541,7 +541,7 @@ def load_news():
     return df
 
 
-st.title("📰 뉴스 터미널")
+st.title("📰 실시간 뉴스")
 st.caption("10초 자동갱신 | 제목 클릭 시 원문 이동")
 
 if st.button("캐시 초기화 / 강제 새로고침"):
