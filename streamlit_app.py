@@ -15,10 +15,10 @@ st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
-DB_PATH = "news_terminal_media_detail_final.db"
+DB_PATH = "news_terminal_FINAL_SLEEP.db"
 
 KEEP_HOURS = 24
-TIMEOUT = 5
+TIMEOUT = 6
 ARTICLE_TIMEOUT = 4
 MAX_WORKERS = 10
 MAX_LINKS_PER_SOURCE = 80
@@ -204,19 +204,6 @@ def parse_text_dt(text):
                 h = 0
             return datetime(int(y), int(mo), int(d), h, int(mi))
 
-    m = re.search(r"(\d{2})[-.](\d{2})\s+(\d{1,2}):(\d{2})", text)
-    if m:
-        mo, d, h, mi = map(int, m.groups())
-        return datetime(now_dt().year, mo, d, h, mi)
-
-    m = re.search(r"(\d+)\s*분\s*전", text)
-    if m:
-        return now_dt() - timedelta(minutes=int(m.group(1)))
-
-    m = re.search(r"(\d+)\s*시간\s*전", text)
-    if m:
-        return now_dt() - timedelta(hours=int(m.group(1)))
-
     return None
 
 
@@ -235,28 +222,7 @@ def fetch_article_time(link, media):
 
         candidates = []
 
-        MEDIA_SELECTORS = {
-            "네이버뉴스": [".media_end_head_info_datestamp_time", "span._ARTICLE_DATE_TIME"],
-            "네이버금융": [".articleInfo .date", ".article_info .date", ".date"],
-            "다음금융": [".num_date", ".txt_date", ".info_view .num_date"],
-            "한국경제": [".txt-date", ".article-timestamp", ".date"],
-            "한국경제-증권": [".txt-date", ".article-timestamp", ".date"],
-            "매일경제": [".registration", ".time_area", ".news_write_info_group"],
-            "서울경제": [".article_info", ".view_time", ".date"],
-            "이데일리": [".news_dates", ".dates", ".date"],
-            "머니투데이": [".date", ".info", ".article_info"],
-            "아시아경제": [".user_info", ".view_info", ".date"],
-            "파이낸셜뉴스": [".byline", ".date", ".info"],
-            "조선비즈": ["time", ".date", ".article-date"],
-            "전자신문": [".article_date", ".date", ".info"],
-            "ZDNet": [".news_info", ".date", "time"],
-            "디지털데일리": [".article_info", ".date", ".view_info"],
-            "연합뉴스": [".update-time", ".txt-time", ".date"],
-            "뉴스1": [".date", ".time", ".article_info"],
-            "한국일보": [".date", ".view_info", "time"],
-        }
-
-        for attr in [
+        meta_keys = [
             {"property": "article:published_time"},
             {"property": "og:regDate"},
             {"property": "og:article:published_time"},
@@ -267,21 +233,42 @@ def fetch_article_time(link, media):
             {"name": "Date"},
             {"name": "datePublished"},
             {"itemprop": "datePublished"},
-        ]:
+        ]
+
+        for attr in meta_keys:
             tag = soup.find("meta", attr)
             if tag and tag.get("content"):
                 candidates.append(tag.get("content"))
 
-        for selector in MEDIA_SELECTORS.get(media, []):
+        selectors = [
+            ".media_end_head_info_datestamp_time",
+            "span._ARTICLE_DATE_TIME",
+            ".articleInfo .date",
+            ".article_info .date",
+            ".num_date",
+            ".txt_date",
+            ".info_view .num_date",
+            ".txt-date",
+            ".article-timestamp",
+            ".registration",
+            ".time_area",
+            ".news_write_info_group",
+            ".view_time",
+            ".news_dates",
+            ".dates",
+            ".article_date",
+            ".update-time",
+            ".txt-time",
+            ".date",
+            ".time",
+            "time",
+        ]
+
+        for selector in selectors:
             for tag in soup.select(selector):
                 if tag.get("datetime"):
                     candidates.append(tag.get("datetime"))
                 candidates.append(tag.get_text(" "))
-
-        for t in soup.find_all("time"):
-            if t.get("datetime"):
-                candidates.append(t.get("datetime"))
-            candidates.append(t.get_text(" "))
 
         candidates.append(soup.get_text(" ", strip=True)[:4000])
 
@@ -307,27 +294,22 @@ def clean_title_tail(title):
     return clean_text(title)
 
 
+def valid_title(title):
+    title = clean_text(title)
+    if not title or len(title) < 8 or len(title) > 220:
+        return False
+    if any(w.lower() in title.lower() for w in BAD_TITLE_WORDS):
+        return False
+    if re.match(r"^\d+\s*위[, ]", title):
+        return False
+    if len(re.sub(r"[가-힣A-Za-z0-9]", "", title)) > len(title) * 0.6:
+        return False
+    return True
+
+
 def is_stock_related(title):
     t = title.lower()
     return any(w.lower() in t for w in STOCK_KEYWORDS)
-
-
-def valid_title(title):
-    title = clean_text(title)
-
-    if not title or len(title) < 8 or len(title) > 220:
-        return False
-
-    if any(w.lower() in title.lower() for w in BAD_TITLE_WORDS):
-        return False
-
-    if re.match(r"^\d+\s*위[, ]", title):
-        return False
-
-    if len(re.sub(r"[가-힣A-Za-z0-9]", "", title)) > len(title) * 0.6:
-        return False
-
-    return True
 
 
 def detect_sentiment(title):
@@ -366,6 +348,7 @@ def make_row(title, link, media, dt):
     if not valid_title(title):
         return None
 
+    # 상대시간 사용 안 함. 원문/RSS/절대시간만 사용.
     if not is_recent_dt(dt):
         dt = fetch_article_time(link, media)
 
@@ -417,7 +400,10 @@ def fetch_rss(source):
 
 def fetch_daum_finance(source):
     rows, seen = [], set()
-    urls = ["https://news.daum.net/finance", "https://m.finance.daum.net/news"]
+    urls = [
+        "https://news.daum.net/finance",
+        "https://m.finance.daum.net/news",
+    ]
 
     for url in urls:
         try:
@@ -451,6 +437,31 @@ def fetch_daum_finance(source):
 
         except Exception:
             continue
+
+    # 다음 보완 RSS
+    for rss_url in [
+        google_rss("site:v.daum.net 주식 OR 증시 OR 코스피 OR 코스닥 OR 반도체 OR 기업"),
+        google_rss("site:news.daum.net/finance 주식 OR 증시 OR 기업"),
+    ]:
+        feed = feedparser.parse(rss_url)
+        for item in feed.entries[:80]:
+            raw = clean_text(item.get("title", ""))
+            link = item.get("link", "")
+            published = item.get("published") or item.get("updated") or ""
+
+            title = raw
+            if " - " in raw:
+                title, _origin = raw.rsplit(" - ", 1)
+                title = clean_text(title)
+
+            key = normalize_title_for_dedupe(title)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            row = make_row(title, link, "다음금융", parse_rss_dt(published))
+            if row:
+                rows.append(row)
 
     return rows
 
@@ -505,6 +516,7 @@ def fetch_naver_news(source):
     for page in range(1, NAVER_NEWS_PAGES + 1):
         try:
             url = f"https://news.naver.com/main/list.naver?mode=LSD&mid=shm&sid1=101&page={page}&_ts={int(datetime.now().timestamp())}"
+
             res = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
             res.encoding = "euc-kr"
             soup = BeautifulSoup(res.text, "lxml")
@@ -646,9 +658,19 @@ def save_rows(rows):
             dedupe_key=excluded.dedupe_key,
             inserted_at=excluded.inserted_at
         """, (
-            r["title"], r["display_title"], r["sentiment"], r["company"], r["theme"],
-            r["media"], r["display_dt"], r["sort_dt"].isoformat(),
-            float(r["sort_ts"]), int(r["stock_related"]), r["dedupe_key"], r["link"], r["inserted_at"].isoformat()
+            r["title"],
+            r["display_title"],
+            r["sentiment"],
+            r["company"],
+            r["theme"],
+            r["media"],
+            r["display_dt"],
+            r["sort_dt"].isoformat(),
+            float(r["sort_ts"]),
+            int(r["stock_related"]),
+            r["dedupe_key"],
+            r["link"],
+            r["inserted_at"].isoformat()
         ))
 
     con.commit()
@@ -659,7 +681,7 @@ def purge_old():
     cutoff = now_dt() - timedelta(hours=KEEP_HOURS)
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
-    cur.execute("DELETE FROM news WHERE inserted_at < ?", (cutoff.isoformat(),))
+    cur.execute("DELETE FROM news WHERE sort_dt < ?", (cutoff.isoformat(),))
     con.commit()
     con.close()
 
@@ -673,6 +695,7 @@ def load_db():
         return df
 
     df["sort_ts"] = pd.to_numeric(df["sort_ts"], errors="coerce")
+
     df = (
         df.dropna(subset=["sort_ts"])
           .sort_values("sort_ts", ascending=False, kind="mergesort")
@@ -692,7 +715,7 @@ def refresh():
 
 
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 기사만 | 원문 기사시간 기준 내림차순 | 중복 제거")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 기사만 | 상대시간 제외 | 원문/RSS 기사시간 기준 내림차순 | 중복 제거")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
     st.cache_data.clear()
@@ -730,14 +753,19 @@ filtered = df.copy()
 
 if stock_filter == "주식관련만":
     filtered = filtered[filtered["stock_related"] == 1]
+
 if sentiment_filter != "전체":
     filtered = filtered[filtered["sentiment"] == sentiment_filter]
+
 if company_filter != "전체":
     filtered = filtered[filtered["company"] == company_filter]
+
 if theme_filter != "전체":
     filtered = filtered[filtered["theme"] == theme_filter]
+
 if media_filter != "전체":
     filtered = filtered[filtered["media"] == media_filter]
+
 if search:
     filtered = filtered[
         filtered["title"].str.contains(search, case=False, na=False)
@@ -755,6 +783,7 @@ with st.expander("매체별 수집 개수 확인"):
     st.dataframe(check, use_container_width=True, hide_index=True)
 
 rows = ""
+
 for _, r in filtered.head(1500).iterrows():
     rows += f"""
     <tr>
