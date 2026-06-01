@@ -25,7 +25,7 @@ st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
 
-DB_PATH = "news_terminal_last_final.db"
+DB_PATH = "news_terminal_final_time.db"
 KEEP_HOURS = 24
 
 TIMEOUT = 5
@@ -655,13 +655,12 @@ def load_db():
 
     df["sort_dt_real"] = pd.to_datetime(df["sort_dt"], errors="coerce")
     df["inserted_real"] = pd.to_datetime(df["inserted_at"], errors="coerce")
-    df["sort_key"] = df["sort_dt_real"].fillna(df["inserted_real"])
+    df["final_time"] = df["sort_dt_real"].fillna(df["inserted_real"])
 
-    df = df.sort_values(
-        by="sort_key",
-        ascending=False,
-        kind="mergesort"
-    ).reset_index(drop=True)
+    df = (
+        df.sort_values("final_time", ascending=False, kind="mergesort")
+          .reset_index(drop=True)
+    )
 
     return df
 
@@ -679,7 +678,7 @@ def refresh():
 # =========================================================
 
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 시간순 정렬 | 제목 클릭 시 원문 이동")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 전체 뉴스 시간순 정렬 | 제목 클릭 시 원문 이동")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
     st.cache_data.clear()
@@ -733,6 +732,13 @@ if search:
         | filtered["theme"].str.contains(search, case=False, na=False)
         | filtered["media"].str.contains(search, case=False, na=False)
     ]
+
+# 필터 후에도 전체 시간순 재정렬
+if not filtered.empty and "final_time" in filtered.columns:
+    filtered = (
+        filtered.sort_values("final_time", ascending=False, kind="mergesort")
+        .reset_index(drop=True)
+    )
 
 st.subheader(f"전체 뉴스 {len(filtered)}개")
 
