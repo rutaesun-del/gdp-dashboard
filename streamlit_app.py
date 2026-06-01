@@ -16,16 +16,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit_autorefresh import st_autorefresh
 
 
-# =========================================================
-# 기본 설정
-# =========================================================
-
 st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
 
-DB_PATH = "news_terminal_final_time.db"
+DB_PATH = "news_terminal_absolute_final.db"
 KEEP_HOURS = 24
 
 TIMEOUT = 5
@@ -43,10 +39,6 @@ HEADERS = {
 def google_rss(q):
     return f"https://news.google.com/rss/search?q={quote(q)}&hl=ko&gl=KR&ceid=KR:ko"
 
-
-# =========================================================
-# 뉴스 소스
-# =========================================================
 
 SOURCES = [
     {
@@ -97,10 +89,6 @@ SOURCES = [
     {"name": "국민일보", "type": "rss", "url": google_rss("site:kmib.co.kr 경제 OR 증시 OR 기업")},
 ]
 
-
-# =========================================================
-# 분류 사전
-# =========================================================
 
 POSITIVE = [
     "수주", "계약", "공급", "양산", "증설", "투자", "흑자", "호실적",
@@ -169,10 +157,6 @@ BAD_TITLE_WORDS = [
     "연합뉴스 인스타그램", "연합뉴스 페이스북",
 ]
 
-
-# =========================================================
-# 유틸
-# =========================================================
 
 def clean_text(x):
     return re.sub(r"\s+", " ", str(x or "")).strip()
@@ -323,14 +307,11 @@ def make_row(title, link, media, dt):
         "media": media,
         "display_dt": display_dt(final_dt),
         "sort_dt": final_dt,
+        "sort_ts": final_dt.timestamp(),
         "link": link,
         "inserted_at": collected_at,
     }
 
-
-# =========================================================
-# 수집 함수
-# =========================================================
 
 def fetch_rss(source):
     rows = []
@@ -576,10 +557,6 @@ def fetch_all():
     return rows
 
 
-# =========================================================
-# DB
-# =========================================================
-
 def init_db():
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
@@ -593,6 +570,7 @@ def init_db():
         media TEXT,
         display_dt TEXT,
         sort_dt TEXT,
+        sort_ts REAL,
         link TEXT UNIQUE,
         inserted_at TEXT
     )
@@ -607,7 +585,7 @@ def save_rows(rows):
 
     for r in rows:
         cur.execute("""
-        INSERT INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(link) DO UPDATE SET
             title=excluded.title,
             display_title=excluded.display_title,
@@ -617,6 +595,7 @@ def save_rows(rows):
             media=excluded.media,
             display_dt=excluded.display_dt,
             sort_dt=excluded.sort_dt,
+            sort_ts=excluded.sort_ts,
             inserted_at=excluded.inserted_at
         """, (
             r["title"],
@@ -627,6 +606,7 @@ def save_rows(rows):
             r["media"],
             r["display_dt"],
             r["sort_dt"].isoformat() if r["sort_dt"] else "",
+            float(r["sort_ts"]),
             r["link"],
             r["inserted_at"].isoformat(),
         ))
@@ -653,12 +633,13 @@ def load_db():
     if df.empty:
         return df
 
-    df["sort_dt_real"] = pd.to_datetime(df["sort_dt"], errors="coerce")
+    df["sort_ts"] = pd.to_numeric(df["sort_ts"], errors="coerce")
     df["inserted_real"] = pd.to_datetime(df["inserted_at"], errors="coerce")
-    df["final_time"] = df["sort_dt_real"].fillna(df["inserted_real"])
+    df["inserted_ts"] = df["inserted_real"].astype("int64") / 1_000_000_000
+    df["final_ts"] = df["sort_ts"].fillna(df["inserted_ts"])
 
     df = (
-        df.sort_values("final_time", ascending=False, kind="mergesort")
+        df.sort_values("final_ts", ascending=False, kind="mergesort")
           .reset_index(drop=True)
     )
 
@@ -672,10 +653,6 @@ def refresh():
     purge_old()
     return load_db()
 
-
-# =========================================================
-# 화면
-# =========================================================
 
 st.title("📰 뉴스 터미널")
 st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 전체 뉴스 시간순 정렬 | 제목 클릭 시 원문 이동")
@@ -733,12 +710,10 @@ if search:
         | filtered["media"].str.contains(search, case=False, na=False)
     ]
 
-# 필터 후에도 전체 시간순 재정렬
-if not filtered.empty and "final_time" in filtered.columns:
-    filtered = (
-        filtered.sort_values("final_time", ascending=False, kind="mergesort")
-        .reset_index(drop=True)
-    )
+filtered = (
+    filtered.sort_values("final_ts", ascending=False, kind="mergesort")
+    .reset_index(drop=True)
+)
 
 st.subheader(f"전체 뉴스 {len(filtered)}개")
 
