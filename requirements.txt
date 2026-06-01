@@ -1,4 +1,7 @@
 streamlit
-feedparser
 pandas
+feedparser
+requests
+beautifulsoup4
+lxml
 streamlit-autorefresh
