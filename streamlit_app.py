@@ -60,20 +60,31 @@ THEME_RULES = {
 }
 
 SOURCES = [
-    {"name": "네이버금융", "type": "crawl", "url": "https://finance.naver.com/news/mainnews.naver", "base": "https://finance.naver.com"},
-    {"name": "다음경제", "type": "crawl", "url": "https://news.daum.net/breakingnews/economic", "base": "https://news.daum.net"},
+    {
+        "name": "네이버금융",
+        "type": "naver",
+        "url": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
+        "base": "https://finance.naver.com",
+    },
+    {
+        "name": "네이버금융-주요뉴스",
+        "type": "naver",
+        "url": "https://finance.naver.com/news/mainnews.naver",
+        "base": "https://finance.naver.com",
+    },
     {"name": "한국경제", "type": "rss", "url": "https://www.hankyung.com/feed/all-news"},
     {"name": "한국경제-증권", "type": "rss", "url": "https://www.hankyung.com/feed/finance"},
     {"name": "매일경제", "type": "rss", "url": "https://www.mk.co.kr/rss/30000001/"},
-    {"name": "아시아경제", "type": "crawl", "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99", "base": "https://www.asiae.co.kr"},
-    {"name": "한국일보", "type": "crawl", "url": "https://www.hankookilbo.com/News/Economy", "base": "https://www.hankookilbo.com"},
     {"name": "구글뉴스", "type": "rss", "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko"},
+    {"name": "다음경제", "type": "generic", "url": "https://news.daum.net/breakingnews/economic", "base": "https://news.daum.net"},
+    {"name": "아시아경제", "type": "generic", "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99", "base": "https://www.asiae.co.kr"},
+    {"name": "한국일보", "type": "generic", "url": "https://www.hankookilbo.com/News/Economy", "base": "https://www.hankookilbo.com"},
 ]
 
 def clean_text(text):
     return re.sub(r"\s+", " ", text or "").strip()
 
-def short_title(text, limit=115):
+def short_title(text, limit=135):
     text = clean_text(text)
     return text[:limit] + "..." if len(text) > limit else text
 
@@ -107,31 +118,40 @@ def detect_sentiment(title):
 
 def detect_company(title):
     found = []
+
     for company, words in COMPANY_RULES.items():
         if any(word.lower() in title.lower() for word in words):
             found.append(company)
+
     for key, companies in KNOWLEDGE_RULES.items():
         if key.lower() in title.lower():
             found.extend(companies)
+
     return ", ".join(dict.fromkeys(found)) if found else "미분류"
 
 def detect_theme(title):
     found = []
+
     for theme, words in THEME_RULES.items():
         if any(word.lower() in title.lower() for word in words):
             found.append(theme)
+
     return ", ".join(dict.fromkeys(found)) if found else "기타"
 
 def valid_title(title):
     if not title:
         return False
+
     bad_words = ["로그인", "구독", "전체보기", "이전", "다음", "메뉴", "검색", "바로가기", "댓글", "공유", "기사목록"]
     if any(x in title for x in bad_words):
         return False
+
     if len(title) < 8:
         return False
-    if len(title) > 120:
+
+    if len(title) > 150:
         return False
+
     return True
 
 def make_row(title, link, media, date_value):
@@ -144,7 +164,7 @@ def make_row(title, link, media, date_value):
         "테마": detect_theme(title),
         "매체": media,
         "일자": date_value,
-        "링크": link
+        "링크": link,
     }
 
 def fetch_rss(source):
@@ -174,12 +194,56 @@ def fetch_rss(source):
 
     return rows
 
-def fetch_crawl(source):
+def fetch_naver(source):
     rows = []
 
     try:
         res = requests.get(source["url"], headers=HEADERS, timeout=8)
-        res.raise_for_status()
+        res.encoding = "euc-kr"
+        soup = BeautifulSoup(res.text, "lxml")
+
+        selectors = [
+            "dd.articleSubject a",
+            "dt.articleSubject a",
+            "ul.newsList a",
+            "div.newsList a",
+            "a.articleSubject",
+        ]
+
+        candidates = []
+
+        for selector in selectors:
+            for a in soup.select(selector):
+                title = clean_text(a.get_text(" "))
+                href = a.get("href", "")
+
+                if not valid_title(title):
+                    continue
+
+                link = absolute_url(href, source["base"])
+                candidates.append((title, link))
+
+        seen_local = set()
+
+        for title, link in candidates[:120]:
+            key = title.lower().replace(" ", "")
+
+            if key in seen_local:
+                continue
+
+            seen_local.add(key)
+            rows.append(make_row(title, link, source["name"], datetime.now().strftime("%m-%d %H:%M")))
+
+    except Exception:
+        pass
+
+    return rows
+
+def fetch_generic(source):
+    rows = []
+
+    try:
+        res = requests.get(source["url"], headers=HEADERS, timeout=8)
         soup = BeautifulSoup(res.text, "lxml")
 
         candidates = []
@@ -193,29 +257,19 @@ def fetch_crawl(source):
 
             link = absolute_url(href, source["base"])
 
-            if not link.startswith("http"):
-                continue
-
-            candidates.append((title, link))
+            if link.startswith("http"):
+                candidates.append((title, link))
 
         seen_local = set()
 
-        for title, link in candidates[:160]:
+        for title, link in candidates[:120]:
             key = title.lower().replace(" ", "")
 
             if key in seen_local:
                 continue
 
             seen_local.add(key)
-
-            rows.append(
-                make_row(
-                    title=title,
-                    link=link,
-                    media=source["name"],
-                    date_value=datetime.now().strftime("%m-%d %H:%M")
-                )
-            )
+            rows.append(make_row(title, link, source["name"], datetime.now().strftime("%m-%d %H:%M")))
 
     except Exception:
         pass
@@ -229,8 +283,10 @@ def load_news():
     for source in SOURCES:
         if source["type"] == "rss":
             rows.extend(fetch_rss(source))
+        elif source["type"] == "naver":
+            rows.extend(fetch_naver(source))
         else:
-            rows.extend(fetch_crawl(source))
+            rows.extend(fetch_generic(source))
 
     df = pd.DataFrame(rows)
 
@@ -253,7 +309,7 @@ if df.empty:
     st.warning("뉴스가 없습니다.")
     st.stop()
 
-col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 2])
 
 with col1:
     sentiment_filter = st.selectbox("감성", ["전체"] + sorted(df["감성"].unique().tolist()))
@@ -262,6 +318,8 @@ with col2:
 with col3:
     theme_filter = st.selectbox("테마", ["전체"] + sorted(df["테마"].unique().tolist()))
 with col4:
+    media_filter = st.selectbox("매체", ["전체"] + sorted(df["매체"].unique().tolist()))
+with col5:
     search = st.text_input("검색")
 
 filtered = df.copy()
@@ -272,6 +330,8 @@ if company_filter != "전체":
     filtered = filtered[filtered["회사명"] == company_filter]
 if theme_filter != "전체":
     filtered = filtered[filtered["테마"] == theme_filter]
+if media_filter != "전체":
+    filtered = filtered[filtered["매체"] == media_filter]
 if search:
     filtered = filtered[
         filtered["제목"].str.contains(search, case=False, na=False)
@@ -284,7 +344,7 @@ st.subheader(f"전체 뉴스 {len(filtered)}개")
 
 rows_html = ""
 
-for _, row in filtered.head(600).iterrows():
+for _, row in filtered.head(700).iterrows():
     title = html.escape(str(row["표시제목"]))
     full_title = html.escape(str(row["제목"]))
     link = html.escape(str(row["링크"]))
@@ -334,7 +394,7 @@ table_html = f"""
     background: #f8f9fa;
 }}
 .news-table .title {{
-    width: 68%;
+    width: 69%;
     font-weight: 600;
 }}
 .news-table .title a {{
@@ -345,14 +405,14 @@ table_html = f"""
     text-decoration: underline;
 }}
 .news-table .sentiment {{
-    width: 70px;
+    width: 68px;
     font-weight: 700;
 }}
 .news-table .company {{
-    width: 120px;
+    width: 105px;
 }}
 .news-table .theme {{
-    width: 85px;
+    width: 75px;
 }}
 .news-table .media {{
     width: 85px;
