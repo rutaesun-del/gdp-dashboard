@@ -2,28 +2,36 @@ import re, html, sqlite3, requests, feedparser, os
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 from streamlit_autorefresh import st_autorefresh
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 st.set_page_config(page_title="뉴스 터미널", layout="wide")
-st_autorefresh(interval=20000, key="refresh")
+st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
-DB_PATH = "news_terminal_final_v2.db"
+DB_PATH = "news_terminal_speed_v1.db"
 KEEP_HOURS = 24
-NAVER_FINANCE_PAGES = 20
-NAVER_NEWS_PAGES = 10
+
+NAVER_FINANCE_PAGES = 10
+NAVER_NEWS_PAGES = 3
+MAX_WORKERS = 10
+TIMEOUT = 5
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
 
+
 def google_rss(q):
     return f"https://news.google.com/rss/search?q={quote(q)}&hl=ko&gl=KR&ceid=KR:ko"
+
 
 SOURCES = [
     {"name":"네이버금융","type":"naver_finance","url":"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258","base":"https://finance.naver.com","encoding":"euc-kr"},
@@ -34,7 +42,7 @@ SOURCES = [
     {"name":"매일경제","type":"rss","url":"https://www.mk.co.kr/rss/30000001/"},
     {"name":"구글뉴스-경제","type":"rss","url":"https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko"},
 
-    {"name":"다음뉴스","type":"generic","url":"https://finance.daum.net/news#economy","base":"https://finance.daum.net","encoding":"utf-8"},
+    {"name":"다음경제","type":"generic","url":"https://finance.daum.net/news#economy","base":"https://finance.daum.net","encoding":"utf-8"},
     {"name":"아시아경제","type":"generic","url":"https://www.asiae.co.kr/news/list.htm?sec=eco99","base":"https://www.asiae.co.kr","encoding":"utf-8"},
     {"name":"한국일보","type":"generic","url":"https://www.hankookilbo.com/News/Economy","base":"https://www.hankookilbo.com","encoding":"utf-8"},
     {"name":"전자신문","type":"generic","url":"https://www.etnews.com/news/section.html?id1=20","base":"https://www.etnews.com","encoding":"utf-8"},
@@ -55,6 +63,7 @@ SOURCES = [
     {"name":"헤럴드경제","type":"rss","url":google_rss("site:heraldcorp.com 경제 OR 증시 OR 기업")},
     {"name":"국민일보","type":"rss","url":google_rss("site:kmib.co.kr 경제 OR 증시 OR 기업")},
 ]
+
 
 POSITIVE = [
     "수주","계약","공급","양산","증설","투자","흑자","호실적","최초","최고","최대","역대","갱신",
@@ -85,8 +94,6 @@ COMPANY_RULES = {
     "이수페타시스":["이수페타시스"],
     "대덕전자":["대덕전자"],
     "티엘비":["티엘비"],
-    "마이크론":["마이크론","Micron"],
-    "AMD":["AMD"],
     "한화오션":["한화오션"],
     "두산에너빌리티":["두산에너빌리티"],
 }
@@ -104,36 +111,44 @@ THEME_RULES = {
 }
 
 BAD_TITLE_WORDS = [
-    "포토","화보","사진","영상","기자간담회","작가간담회","기자 모집","수습기자",
-    "마감","채용","공모","공지","알림","로그인","구독","전체보기","이전","다음",
-    "메뉴","검색","바로가기","댓글","공유","기사목록","많이 본 뉴스","인기검색어",
-    "서비스 약관","개인정보","저작권","facebook","instagram","youtube",
-    "오늘의 증시일정","24시간 뉴스센터","광고","newsletter",
-    "credit cards","retire","retirement","wedding expenses","hotel credit","municipal bond"
+    "포토","화보","사진","기자 모집","수습기자","채용","공모","공지","알림",
+    "로그인","구독","전체보기","이전","다음","메뉴","검색","바로가기","댓글","공유",
+    "기사목록","많이 본 뉴스","인기검색어","서비스 약관","개인정보","저작권",
+    "facebook","instagram","youtube","오늘의 증시일정","24시간 뉴스센터","광고",
+    "newsletter","credit cards","retire","retirement","wedding expenses","hotel credit","municipal bond"
 ]
+
 
 def clean_text(x):
     return re.sub(r"\s+", " ", str(x or "")).strip()
 
+
 def now_dt():
     return datetime.now(KST).replace(tzinfo=None)
 
+
 def absolute_url(link, base):
     link = str(link or "")
-    if link.startswith("http"): return link
-    if link.startswith("//"): return "https:" + link
-    if link.startswith("/"): return base + link
+    if link.startswith("http"):
+        return link
+    if link.startswith("//"):
+        return "https:" + link
+    if link.startswith("/"):
+        return base + link
     return base + "/" + link
 
+
 def parse_rss_dt(x):
-    if not x: return None
+    if not x:
+        return None
     try:
         dt = parsedate_to_datetime(x)
         if dt.tzinfo:
             dt = dt.astimezone(KST)
         return dt.replace(tzinfo=None)
-    except:
+    except Exception:
         return None
+
 
 def parse_text_dt(text):
     text = clean_text(text)
@@ -142,8 +157,10 @@ def parse_text_dt(text):
     if m:
         y, mo, d, ampm, h, mi = m.groups()
         h = int(h)
-        if ampm == "오후" and h < 12: h += 12
-        if ampm == "오전" and h == 12: h = 0
+        if ampm == "오후" and h < 12:
+            h += 12
+        if ampm == "오전" and h == 12:
+            h = 0
         return datetime(int(y), int(mo), int(d), h, int(mi))
 
     m = re.search(r"(\d{2})[-.](\d{2})\s+(\d{1,2}):(\d{2})", text)
@@ -161,14 +178,17 @@ def parse_text_dt(text):
 
     return None
 
+
 def display_dt(dt):
     return "" if dt is None else dt.strftime("%m-%d %H:%M")
+
 
 def clean_title_tail(title):
     title = clean_text(title)
     title = re.sub(r"\s+[가-힣A-Za-z0-9·.\-]+(\s+\d+\s*분\s*전|\s+\d+\s*시간\s*전)$", "", title)
     title = re.sub(r"\s+\d{4}[-.]\d{2}[-.]\d{2}.*\d{1,2}:\d{2}$", "", title)
     return clean_text(title)
+
 
 def valid_title(title):
     title = clean_text(title)
@@ -180,21 +200,30 @@ def valid_title(title):
         return False
     return True
 
+
 def detect_sentiment(title):
     pos = sum(w in title for w in POSITIVE)
     neg = sum(w in title for w in NEGATIVE)
-    if pos > neg: return "🔵 긍정"
-    if neg > pos: return "🔴 부정"
+    if pos > neg:
+        return "🔵 긍정"
+    if neg > pos:
+        return "🔴 부정"
     return "⚪ 중립"
+
 
 def detect_company(title):
     found = []
     for c, words in COMPANY_RULES.items():
         if any(w.lower() in title.lower() for w in words):
             found.append(c)
-    if "HBM" in title: found += ["삼성전자","SK하이닉스","한미반도체"]
-    if "PCB" in title: found += ["이수페타시스","대덕전자","티엘비"]
+
+    if "HBM" in title:
+        found += ["삼성전자", "SK하이닉스", "한미반도체"]
+    if "PCB" in title:
+        found += ["이수페타시스", "대덕전자", "티엘비"]
+
     return ", ".join(dict.fromkeys(found)) if found else "미분류"
+
 
 def detect_theme(title):
     found = []
@@ -203,11 +232,9 @@ def detect_theme(title):
             found.append(t)
     return ", ".join(dict.fromkeys(found)) if found else "기타"
 
+
 def make_row(title, link, media, dt):
     title = clean_title_tail(title)
-
-    if dt is None:
-        return None
 
     if not valid_title(title):
         return None
@@ -225,16 +252,18 @@ def make_row(title, link, media, dt):
         "inserted_at": now_dt(),
     }
 
+
 def fetch_rss(source):
     rows = []
     feed = feedparser.parse(source["url"])
 
-    for item in feed.entries[:180]:
+    for item in feed.entries[:160]:
         raw = clean_text(item.get("title", ""))
         link = item.get("link", "")
         published = item.get("published") or item.get("updated") or ""
 
-        if not valid_title(raw): continue
+        if not valid_title(raw):
+            continue
 
         title = raw
         media = source["name"]
@@ -245,9 +274,11 @@ def fetch_rss(source):
             media = clean_text(origin) or media
 
         row = make_row(title, link, media, parse_rss_dt(published))
-        if row: rows.append(row)
+        if row:
+            rows.append(row)
 
     return rows
+
 
 def fetch_naver_finance(source):
     rows, seen = [], set()
@@ -255,7 +286,7 @@ def fetch_naver_finance(source):
     try:
         for page in range(1, NAVER_FINANCE_PAGES + 1):
             url = source["url"] + f"&page={page}&_ts=" + str(int(datetime.now().timestamp()))
-            res = requests.get(url, headers=HEADERS, timeout=8)
+            res = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
             res.encoding = source["encoding"]
             soup = BeautifulSoup(res.text, "lxml")
 
@@ -266,22 +297,26 @@ def fetch_naver_finance(source):
                     title = clean_text(a.get_text(" "))
                     href = a.get("href", "")
 
-                    if not valid_title(title): continue
+                    if not valid_title(title):
+                        continue
 
                     key = title.lower().replace(" ", "")
-                    if key in seen: continue
+                    if key in seen:
+                        continue
                     seen.add(key)
 
                     link = absolute_url(href, source["base"])
                     dt = parse_text_dt(block_text)
 
                     row = make_row(title, link, source["name"], dt)
-                    if row: rows.append(row)
+                    if row:
+                        rows.append(row)
 
-    except:
+    except Exception:
         pass
 
     return rows
+
 
 def fetch_naver_news(source):
     rows, seen = [], set()
@@ -289,7 +324,7 @@ def fetch_naver_news(source):
     try:
         for page in range(1, NAVER_NEWS_PAGES + 1):
             url = source["url"] + f"&page={page}&_ts=" + str(int(datetime.now().timestamp()))
-            res = requests.get(url, headers=HEADERS, timeout=8)
+            res = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
             res.encoding = source["encoding"]
             soup = BeautifulSoup(res.text, "lxml")
 
@@ -297,10 +332,12 @@ def fetch_naver_news(source):
                 title = clean_text(a.get_text(" "))
                 href = a.get("href", "")
 
-                if not valid_title(title): continue
+                if not valid_title(title):
+                    continue
 
                 key = title.lower().replace(" ", "")
-                if key in seen: continue
+                if key in seen:
+                    continue
                 seen.add(key)
 
                 link = absolute_url(href, source["base"])
@@ -308,18 +345,20 @@ def fetch_naver_news(source):
                 dt = parse_text_dt(clean_text(block.get_text(" ") if block else ""))
 
                 row = make_row(title, link, source["name"], dt)
-                if row: rows.append(row)
+                if row:
+                    rows.append(row)
 
-    except:
+    except Exception:
         pass
 
     return rows
+
 
 def fetch_generic(source):
     rows, seen = [], set()
 
     try:
-        res = requests.get(source["url"], headers=HEADERS, timeout=8)
+        res = requests.get(source["url"], headers=HEADERS, timeout=TIMEOUT)
         res.encoding = source.get("encoding") or res.apparent_encoding
         soup = BeautifulSoup(res.text, "lxml")
 
@@ -327,10 +366,12 @@ def fetch_generic(source):
             title = clean_text(a.get_text(" "))
             href = a.get("href", "")
 
-            if not valid_title(title): continue
+            if not valid_title(title):
+                continue
 
             key = title.lower().replace(" ", "")
-            if key in seen: continue
+            if key in seen:
+                continue
             seen.add(key)
 
             link = absolute_url(href, source["base"])
@@ -338,25 +379,39 @@ def fetch_generic(source):
             dt = parse_text_dt(clean_text(block.get_text(" ") if block else ""))
 
             row = make_row(title, link, source["name"], dt)
-            if row: rows.append(row)
+            if row:
+                rows.append(row)
 
-    except:
+    except Exception:
         pass
 
     return rows
 
+
+def fetch_one(s):
+    if s["type"] == "naver_finance":
+        return fetch_naver_finance(s)
+    if s["type"] == "naver_news":
+        return fetch_naver_news(s)
+    if s["type"] == "rss":
+        return fetch_rss(s)
+    return fetch_generic(s)
+
+
 def fetch_all():
     rows = []
-    for s in SOURCES:
-        if s["type"] == "naver_finance":
-            rows.extend(fetch_naver_finance(s))
-        elif s["type"] == "naver_news":
-            rows.extend(fetch_naver_news(s))
-        elif s["type"] == "rss":
-            rows.extend(fetch_rss(s))
-        else:
-            rows.extend(fetch_generic(s))
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(fetch_one, s) for s in SOURCES]
+
+        for future in as_completed(futures):
+            try:
+                rows.extend(future.result())
+            except Exception:
+                pass
+
     return rows
+
 
 def init_db():
     con = sqlite3.connect(DB_PATH)
@@ -378,19 +433,24 @@ def init_db():
     con.commit()
     con.close()
 
+
 def save_rows(rows):
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
+
     for r in rows:
         cur.execute("""
         INSERT OR IGNORE INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             r["title"], r["display_title"], r["sentiment"], r["company"], r["theme"],
-            r["media"], r["display_dt"], r["sort_dt"].isoformat(),
+            r["media"], r["display_dt"],
+            r["sort_dt"].isoformat() if r["sort_dt"] else "",
             r["link"], r["inserted_at"].isoformat()
         ))
+
     con.commit()
     con.close()
+
 
 def purge():
     cutoff = now_dt() - timedelta(hours=KEEP_HOURS)
@@ -399,6 +459,7 @@ def purge():
     cur.execute("DELETE FROM news WHERE inserted_at < ?", (cutoff.isoformat(),))
     con.commit()
     con.close()
+
 
 def load_db():
     con = sqlite3.connect(DB_PATH)
@@ -409,20 +470,33 @@ def load_db():
         return df
 
     df["sort_dt_real"] = pd.to_datetime(df["sort_dt"], errors="coerce")
-    df = df.dropna(subset=["sort_dt_real"])
-    df = df.sort_values("sort_dt_real", ascending=False)
+    df["inserted_real"] = pd.to_datetime(df["inserted_at"], errors="coerce")
+
+    # 핵심 정렬:
+    # 1. 날짜 있는 기사 먼저
+    # 2. 날짜 있는 기사는 일자 내림차순
+    # 3. 날짜 없는 기사는 아래에서 수집시간 내림차순
+    df["has_dt"] = df["sort_dt_real"].notna().astype(int)
+    df["sort_key"] = df["sort_dt_real"].fillna(df["inserted_real"])
+
+    df = df.sort_values(
+        ["has_dt", "sort_key"],
+        ascending=[False, False]
+    )
 
     return df
 
-@st.cache_data(ttl=20)
+
+@st.cache_data(ttl=10)
 def refresh():
     init_db()
     save_rows(fetch_all())
     purge()
     return load_db()
 
+
 st.title("📰 뉴스 터미널")
-st.caption(f"20초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 날짜 없는 기사 제외 | 일자 내림차순")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 속보 포착용 | 날짜 없는 뉴스는 아래")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
     st.cache_data.clear()
@@ -436,7 +510,7 @@ if df.empty:
     st.warning("뉴스가 없습니다.")
     st.stop()
 
-c1, c2, c3, c4, c5 = st.columns([1,1,1,1,2])
+c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 2])
 
 with c1:
     sentiment_filter = st.selectbox("감성", ["전체", "🔵 긍정", "⚪ 중립", "🔴 부정"])
@@ -479,7 +553,8 @@ st.subheader(f"전체 뉴스 {len(filtered)}개")
 
 with st.expander("매체별 수집 개수 확인"):
     check = df.groupby("media").agg(
-        전체=("title","count")
+        전체=("title", "count"),
+        날짜있음=("display_dt", lambda x: (x != "").sum())
     ).reset_index().sort_values("전체", ascending=False)
     st.dataframe(check, use_container_width=True, hide_index=True)
 
