@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import feedparser
 from streamlit_autorefresh import st_autorefresh
-from email.utils import parsedate_to_datetime
 from urllib.parse import quote
+from email.utils import parsedate_to_datetime
 
 # -------------------------
 # 기본설정
@@ -16,7 +16,7 @@ st.set_page_config(
 
 st_autorefresh(
     interval=10000,
-    key="news_refresh"
+    key="refresh"
 )
 
 # -------------------------
@@ -48,8 +48,8 @@ KEYWORDS = [
 
 POSITIVE = [
     "수주","계약","공급","양산","증설",
-    "투자","흑자","호실적",
-    "상향","돌파","승인"
+    "투자","흑자","호실적","상향",
+    "돌파","승인","성장"
 ]
 
 NEGATIVE = [
@@ -59,49 +59,21 @@ NEGATIVE = [
 ]
 
 # -------------------------
-# 회사 추론
+# 회사명
 # -------------------------
 
 COMPANY_RULES = {
 
     "삼성전자": ["삼성전자"],
+    "SK하이닉스": ["SK하이닉스","하이닉스"],
+    "엔비디아": ["엔비디아","NVIDIA","GPU"],
+    "TSMC": ["TSMC"],
+    "한미반도체": ["한미반도체","TC본더"],
+    "테슬라": ["테슬라","옵티머스"],
+    "이수페타시스": ["이수페타시스"],
+    "대덕전자": ["대덕전자"],
+    "티엘비": ["티엘비"]
 
-    "SK하이닉스": [
-        "SK하이닉스",
-        "하이닉스"
-    ],
-
-    "엔비디아": [
-        "엔비디아",
-        "NVIDIA",
-        "GPU"
-    ],
-
-    "TSMC": [
-        "TSMC"
-    ],
-
-    "한미반도체": [
-        "한미반도체",
-        "TC본더"
-    ],
-
-    "테슬라": [
-        "테슬라",
-        "옵티머스"
-    ],
-
-    "이수페타시스": [
-        "이수페타시스"
-    ],
-
-    "대덕전자": [
-        "대덕전자"
-    ],
-
-    "티엘비": [
-        "티엘비"
-    ]
 }
 
 # -------------------------
@@ -237,32 +209,19 @@ for keyword in KEYWORDS:
 
     feed = feedparser.parse(rss_url)
 
-    for item in feed.entries[:30]:
+    for item in feed.entries[:50]:
 
-        title = item.get(
-            "title",
-            ""
-        )
-
-        link = item.get(
-            "link",
-            ""
-        )
-
-        published = item.get(
-            "published",
-            ""
-        )
+        title = item.get("title", "")
+        link = item.get("link", "")
+        published = item.get("published", "")
 
         if not title:
             continue
 
-        key = title.lower()
-
-        if key in seen:
+        if title in seen:
             continue
 
-        seen.add(key)
+        seen.add(title)
 
         rows.append({
 
@@ -270,10 +229,8 @@ for keyword in KEYWORDS:
             "감성": get_sentiment(title),
             "회사명": get_company(title),
             "테마": get_theme(title),
-            "일자": format_date(
-                published
-            ),
             "매체": "Google News",
+            "일자": format_date(published),
             "링크": link
 
         })
@@ -298,37 +255,41 @@ if not df.empty:
 st.title("📰 뉴스 터미널")
 
 st.caption(
-    "10초 자동 갱신"
+    "10초 자동갱신"
 )
 
-st.subheader("🔥 속보")
-
-for _, row in df.head(10).iterrows():
-
-    st.markdown(
-        f"""
-### [{row['제목']}]({row['링크']})
-
-{row['감성']} | {row['회사명']} | {row['테마']}
+html = """
+<table style="width:100%;border-collapse:collapse;">
+<tr>
+<th>제목</th>
+<th>감성</th>
+<th>회사명</th>
+<th>테마</th>
+<th>매체</th>
+<th>일자</th>
+</tr>
 """
-    )
 
-st.divider()
+for _, row in df.iterrows():
 
-st.subheader("전체 뉴스")
+    html += f"""
+    <tr>
+        <td>
+            <a href="{row['링크']}" target="_blank">
+            {row['제목']}
+            </a>
+        </td>
+        <td>{row['감성']}</td>
+        <td>{row['회사명']}</td>
+        <td>{row['테마']}</td>
+        <td>{row['매체']}</td>
+        <td>{row['일자']}</td>
+    </tr>
+    """
 
-display_df = df[
-    [
-        "제목",
-        "감성",
-        "회사명",
-        "테마",
-        "일자"
-    ]
-]
+html += "</table>"
 
-st.dataframe(
-    display_df,
-    use_container_width=True,
-    height=700
+st.markdown(
+    html,
+    unsafe_allow_html=True
 )
