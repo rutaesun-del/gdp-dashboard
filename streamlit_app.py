@@ -12,27 +12,16 @@ from email.utils import parsedate_to_datetime
 from streamlit_autorefresh import st_autorefresh
 
 
-# =========================================================
-# 기본 설정
-# =========================================================
-
 st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
-    ),
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
 
-
-# =========================================================
-# 뉴스 소스
-# =========================================================
 
 SOURCES = [
     {
@@ -78,7 +67,7 @@ SOURCES = [
         "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99",
         "base": "https://www.asiae.co.kr",
         "encoding": "utf-8",
-        "allow": ["asiae.co.kr/article"],
+        "allow": ["asiae.co.kr/article", "view.htm"],
     },
     {
         "name": "한국일보",
@@ -96,20 +85,20 @@ SOURCES = [
 ]
 
 
-# =========================================================
-# 분류 사전
-# =========================================================
-
 POSITIVE = [
-    "수주", "계약", "공급", "양산", "증설", "투자", "흑자", "호실적", "최초", "최고", "최대", "역대", "갱신"
-    "상향", "돌파", "승인", "성장", "강세", "급등", "최대", "확대",
-    "협력", "기대", "호재", "개선", "수혜", "신고가", "사상 최고",
+    "수주", "계약", "공급", "양산", "증설", "투자", "흑자", "호실적",
+    "최초", "최고", "최대", "역대", "갱신", "상향", "돌파", "승인",
+    "성장", "강세", "급등", "확대", "협력", "기대", "호재", "개선",
+    "수혜", "신고가", "사상 최고", "반등", "회복", "증가", "확보",
+    "선정", "채택", "성과", "호황", "순항", "출시", "개발", "상승",
+    "랠리", "점유율 확대", "목표가 상향", "실적 개선", "턴어라운드",
 ]
 
 NEGATIVE = [
     "적자", "감산", "규제", "소송", "리콜", "중단", "악화", "급락",
     "하락", "우려", "부진", "손실", "취소", "철회", "약세", "압박",
-    "감소", "실패", "파업", "제재", "폭락",
+    "감소", "실패", "파업", "제재", "폭락", "경고", "쇼크", "둔화",
+    "불확실", "위기", "타격", "하향", "손상", "매각", "퇴출",
 ]
 
 COMPANY_RULES = {
@@ -154,10 +143,6 @@ THEME_RULES = {
 }
 
 
-# =========================================================
-# 유틸
-# =========================================================
-
 def clean_text(text):
     return re.sub(r"\s+", " ", str(text or "")).strip()
 
@@ -165,14 +150,12 @@ def clean_text(text):
 def clean_title_tail(title):
     title = clean_text(title)
 
-    # 끝에 붙는 언론사 + 몇 분 전 제거
     title = re.sub(
         r"\s+[가-힣A-Za-z0-9·.\-]+(\s+\d+\s*분\s*전|\s+\d+\s*시간\s*전)$",
         "",
         title,
     )
 
-    # 끝에 붙는 날짜 제거
     title = re.sub(r"\s+\d{4}[-.]\d{2}[-.]\d{2}\s+\d{2}:\d{2}$", "", title)
 
     return clean_text(title)
@@ -276,7 +259,6 @@ def valid_title(title):
     if re.match(r"^\d+\.\d+", title):
         return False
 
-    # 기호가 너무 많은 가짜 제목 제거
     if len(re.sub(r"[가-힣A-Za-z0-9]", "", title)) > len(title) * 0.55:
         return False
 
@@ -336,10 +318,6 @@ def make_row(title, link, media, dt):
     }
 
 
-# =========================================================
-# 수집 함수
-# =========================================================
-
 def fetch_rss(source):
     rows = []
 
@@ -348,7 +326,7 @@ def fetch_rss(source):
     for item in feed.entries[:150]:
         raw_title = clean_text(item.get("title", ""))
         link = item.get("link", "")
-        published = item.get("published", "")
+        published = item.get("published") or item.get("updated") or ""
 
         if not valid_title(raw_title):
             continue
@@ -556,7 +534,6 @@ def load_news():
     df = df.drop_duplicates(subset=["중복키"], keep="first")
     df = df.drop(columns=["중복키"])
 
-    # 시간 있는 기사: 최신순 / 시간 없는 기사: 아래쪽
     df["정렬일자_보정"] = df["정렬일자"].fillna(datetime(1900, 1, 1))
     df = df.sort_values("정렬일자_보정", ascending=False)
     df = df.drop(columns=["정렬일자_보정"])
@@ -564,11 +541,7 @@ def load_news():
     return df
 
 
-# =========================================================
-# 화면
-# =========================================================
-
-st.title("📰 실시간 뉴스")
+st.title("📰 뉴스 터미널")
 st.caption("10초 자동갱신 | 제목 클릭 시 원문 이동")
 
 if st.button("캐시 초기화 / 강제 새로고침"):
