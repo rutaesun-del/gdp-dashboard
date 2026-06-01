@@ -3,4 +3,4 @@ feedparser
 pandas
 beautifulsoup4
 requests
-openai
+lxml
