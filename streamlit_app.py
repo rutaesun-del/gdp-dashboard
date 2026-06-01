@@ -1,39 +1,32 @@
-import re
-import html
-import sqlite3
-import requests
-import feedparser
+import re, html, sqlite3, requests, feedparser, os
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
-
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from streamlit_autorefresh import st_autorefresh
 
-
 st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
-DB_PATH = "news_terminal_v3.db"
+DB_PATH = "news_terminal_v4.db"
 KEEP_HOURS = 24
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
 
 SOURCES = [
     {"name":"네이버금융","type":"naver_finance","url":"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258","base":"https://finance.naver.com","encoding":"euc-kr"},
     {"name":"네이버뉴스","type":"naver_news","url":"https://news.naver.com/main/list.naver?mode=LSD&mid=shm&sid1=101","base":"https://news.naver.com","encoding":"euc-kr"},
-
-    {"name":"다음뉴스","type":"generic","url":"https://finance.daum.net/news#economy","base":"https://finance.daum.net","encoding":"utf-8"},
     {"name":"한국경제","type":"rss","url":"https://www.hankyung.com/feed/all-news"},
     {"name":"한국경제-증권","type":"rss","url":"https://www.hankyung.com/feed/finance"},
     {"name":"매일경제","type":"rss","url":"https://www.mk.co.kr/rss/30000001/"},
-
+    {"name":"구글뉴스","type":"rss","url":"https://news.google.com/rss/search?q=코스피%20OR%20코스닥%20OR%20삼성전자%20OR%20SK하이닉스%20OR%20반도체%20OR%20HBM%20OR%20증시%20OR%20ETF&hl=ko&gl=KR&ceid=KR:ko"},
+    {"name":"다음뉴스","type":"generic","url":"https://finance.daum.net/news#economy","base":"https://finance.daum.net","encoding":"utf-8"},
     {"name":"아시아경제","type":"generic","url":"https://www.asiae.co.kr/news/list.htm?sec=eco99","base":"https://www.asiae.co.kr","encoding":"utf-8"},
     {"name":"한국일보","type":"generic","url":"https://www.hankookilbo.com/News/Economy","base":"https://www.hankookilbo.com","encoding":"utf-8"},
     {"name":"전자신문","type":"generic","url":"https://www.etnews.com/news/section.html?id1=20","base":"https://www.etnews.com","encoding":"utf-8"},
@@ -46,26 +39,10 @@ SOURCES = [
     {"name":"머니투데이","type":"generic","url":"https://news.mt.co.kr/newsList.html?pDepth1=stock","base":"https://news.mt.co.kr","encoding":"utf-8"},
     {"name":"연합뉴스","type":"generic","url":"https://www.yna.co.kr/economy/all","base":"https://www.yna.co.kr","encoding":"utf-8"},
     {"name":"뉴스1","type":"generic","url":"https://www.news1.kr/economy","base":"https://www.news1.kr","encoding":"utf-8"},
-
-    {"name":"구글뉴스","type":"rss","url":"https://news.google.com/rss/search?q=코스피%20OR%20코스닥%20OR%20삼성전자%20OR%20SK하이닉스%20OR%20반도체%20OR%20HBM%20OR%20증시%20OR%20ETF&hl=ko&gl=KR&ceid=KR:ko"},
-    {"name":"야후뉴스","type":"rss","url":"https://news.google.com/rss/search?q=site:finance.yahoo.com%20Samsung%20Electronics%20OR%20SK%20Hynix%20OR%20KOSPI%20OR%20KOSDAQ%20OR%20Hyundai%20Motor&hl=ko&gl=KR&ceid=KR:ko"},
 ]
 
-POSITIVE = [
-    "수주","계약","공급","양산","증설","투자","흑자","호실적","최초","최고","최대","역대","갱신",
-    "상향","돌파","승인","성장","강세","급등","확대","협력","기대","호재","개선","수혜","신고가",
-    "사상 최고","반등","회복","증가","확보","선정","채택","성과","호황","순항","출시","개발",
-    "상승","랠리","점유율 확대","목표가 상향","실적 개선","턴어라운드","완판","대박","재평가",
-    "본격화","흑자전환","매출 증가","영업익 증가","수익성 개선","상장 추진","대규모","인수",
-    "합병","신사업","국산화","고성장","수혜주"
-]
-
-NEGATIVE = [
-    "적자","감산","규제","소송","리콜","중단","악화","급락","하락","우려","부진","손실","취소",
-    "철회","약세","압박","감소","실패","파업","제재","폭락","경고","쇼크","둔화","불확실",
-    "위기","타격","하향","손상","퇴출","분쟁","논란","과징금","압수수색","상장폐지","거래정지",
-    "실적 쇼크"
-]
+POSITIVE = ["수주","계약","공급","양산","증설","투자","흑자","호실적","최초","최고","최대","역대","갱신","상향","돌파","승인","성장","강세","급등","확대","협력","기대","호재","개선","수혜","신고가","사상 최고","반등","회복","증가","확보","선정","채택","성과","호황","순항","출시","개발","상승","랠리","목표가 상향","실적 개선","턴어라운드","흑자전환","매출 증가","영업익 증가","수익성 개선"]
+NEGATIVE = ["적자","감산","규제","소송","리콜","중단","악화","급락","하락","우려","부진","손실","취소","철회","약세","압박","감소","실패","파업","제재","폭락","경고","쇼크","둔화","불확실","위기","타격","하향","퇴출","논란","과징금","상장폐지","거래정지"]
 
 COMPANY_RULES = {
     "삼성전자":["삼성전자","Samsung Electronics"],
@@ -74,18 +51,16 @@ COMPANY_RULES = {
     "TSMC":["TSMC"],
     "한미반도체":["한미반도체","TC본더","본더"],
     "삼성전기":["삼성전기","FC-BGA","패키지기판"],
-    "테슬라":["테슬라","옵티머스","Tesla"],
+    "현대차":["현대차","현대자동차","Hyundai Motor"],
+    "기아":["기아"],
+    "카카오":["카카오"],
+    "네이버":["네이버","NAVER"],
     "LG에너지솔루션":["LG에너지솔루션","LG엔솔"],
     "이수페타시스":["이수페타시스"],
     "대덕전자":["대덕전자"],
     "티엘비":["티엘비"],
     "마이크론":["마이크론","Micron"],
     "AMD":["AMD"],
-    "브로드컴":["브로드컴","Broadcom"],
-    "현대차":["현대차","현대자동차","Hyundai Motor"],
-    "기아":["기아"],
-    "카카오":["카카오"],
-    "네이버":["네이버","NAVER"],
 }
 
 THEME_RULES = {
@@ -93,58 +68,45 @@ THEME_RULES = {
     "AI":["AI","인공지능","GPU","엔비디아","루빈","데이터센터"],
     "반도체":["반도체","파운드리","메모리","D램","DRAM","낸드"],
     "PCB":["PCB","FC-BGA","기판","패키지기판"],
-    "로봇":["옵티머스","휴머노이드","로봇"],
-    "2차전지":["배터리","2차전지","전고체"],
     "자동차":["현대차","기아","전기차","자동차"],
     "국장":["코스피","코스닥","증시","공시","ETF"],
 }
 
-
 def clean_text(x):
     return re.sub(r"\s+", " ", str(x or "")).strip()
-
 
 def now_dt():
     return datetime.now(KST).replace(tzinfo=None)
 
-
 def absolute_url(link, base):
     link = str(link or "")
-    if link.startswith("http"):
-        return link
-    if link.startswith("//"):
-        return "https:" + link
-    if link.startswith("/"):
-        return base + link
+    if link.startswith("http"): return link
+    if link.startswith("//"): return "https:" + link
+    if link.startswith("/"): return base + link
     return base + "/" + link
 
-
-def parse_dt(x):
-    if not x:
-        return None
+def parse_rss_dt(x):
+    if not x: return None
     try:
         dt = parsedate_to_datetime(x)
         if dt.tzinfo:
             dt = dt.astimezone(KST)
         return dt.replace(tzinfo=None)
-    except Exception:
+    except:
         return None
-
 
 def parse_text_dt(text):
     text = clean_text(text)
 
-    m = re.search(r"(\d{4})[-.](\d{2})[-.](\d{2})\s+(\d{2}):(\d{2})", text)
+    m = re.search(r"(\d{4})[-.](\d{2})[-.](\d{2})[.\s]+(오전|오후)?\s*(\d{1,2}):(\d{2})", text)
     if m:
-        y, mo, d, h, mi = map(int, m.groups())
-        return datetime(y, mo, d, h, mi)
+        y, mo, d, ampm, h, mi = m.groups()
+        h = int(h)
+        if ampm == "오후" and h < 12: h += 12
+        if ampm == "오전" and h == 12: h = 0
+        return datetime(int(y), int(mo), int(d), h, int(mi))
 
-    m = re.search(r"(\d{4})[.](\d{2})[.](\d{2})[.]\s+(\d{2}):(\d{2})", text)
-    if m:
-        y, mo, d, h, mi = map(int, m.groups())
-        return datetime(y, mo, d, h, mi)
-
-    m = re.search(r"(\d{2})[-.](\d{2})\s+(\d{2}):(\d{2})", text)
+    m = re.search(r"(\d{2})[-.](\d{2})\s+(\d{1,2}):(\d{2})", text)
     if m:
         mo, d, h, mi = map(int, m.groups())
         return datetime(now_dt().year, mo, d, h, mi)
@@ -159,33 +121,21 @@ def parse_text_dt(text):
 
     return None
 
-
 def display_dt(dt):
     return "" if dt is None else dt.strftime("%m-%d %H:%M")
-
 
 def clean_title_tail(title):
     title = clean_text(title)
     title = re.sub(r"\s+[가-힣A-Za-z0-9·.\-]+(\s+\d+\s*분\s*전|\s+\d+\s*시간\s*전)$", "", title)
-    title = re.sub(r"\s+\d{4}[-.]\d{2}[-.]\d{2}\s+\d{2}:\d{2}$", "", title)
+    title = re.sub(r"\s+\d{4}[-.]\d{2}[-.]\d{2}.*\d{1,2}:\d{2}$", "", title)
     return clean_text(title)
-
 
 def valid_title(title):
     title = clean_text(title)
-
     if not title or len(title) < 10 or len(title) > 180:
         return False
 
-    bad = [
-        "로그인","구독","전체보기","이전","다음","메뉴","검색","바로가기","댓글","공유","기사목록",
-        "많이 본 뉴스","인기검색어","서비스 약관","개인정보","저작권","facebook","instagram","youtube",
-        "credit cards","retire","retirement","wedding expenses","hotel credit","municipal bond","newsletter",
-        "advertisement","오늘의 증시일정","24시간 뉴스센터","신규","상승","하락","보합","고가","저가",
-        "날씨","포토","화보","연예","스포츠","야구","축구","농구","배구","사망","교통사고","성폭행",
-        "살해","살인","폭행","시신","경찰 고발","교육감","지방선거","부산 센텀시티","제주","강한 비"
-    ]
-
+    bad = ["날씨","포토","화보","연예","스포츠","야구","축구","농구","배구","사망","살해","살인","폭행","성폭행","교통사고","경찰","교육감","지방선거","제주","강한 비","로그인","구독","전체보기","메뉴","검색","댓글","공유","많이 본 뉴스","인기검색어","서비스 약관","개인정보","저작권","facebook","instagram","youtube","credit cards","retire","retirement","newsletter","advertisement"]
     if any(w.lower() in title.lower() for w in bad):
         return False
 
@@ -194,49 +144,26 @@ def valid_title(title):
 
     return True
 
-
-def is_korean_market_related(title, media):
+def is_stock_related(title, media):
     text = f"{title} {media}".lower()
-
-    if media == "야후뉴스":
-        allow_yahoo = ["samsung", "hynix", "hyundai", "kospi", "kosdaq", "korea stock", "korean stock"]
-        return any(w in text for w in allow_yahoo)
-
-    allow = [
-        "코스피","코스닥","증시","주식","상장","공시","etf","삼성전자","sk하이닉스",
-        "하이닉스","반도체","hbm","엔비디아","tsmc","pcb","현대차","기아","카카오","네이버",
-        "lg","한화","두산","삼성","sk","수주","실적","매출","영업익","투자","증설","금리",
-        "환율","증권","목표가","상향","하향","기관","외국인","개미","순매수","순매도",
-        "급등","급락","신고가","저평가","상장사","시총","밸류업","배당","자사주",
-        "samsung","hynix","hyundai","kospi","kosdaq"
-    ]
-
+    allow = ["코스피","코스닥","증시","주식","상장","공시","etf","삼성전자","sk하이닉스","하이닉스","반도체","hbm","엔비디아","tsmc","pcb","현대차","기아","카카오","네이버","lg","삼성","sk","한화","두산","수주","실적","매출","영업익","투자","증설","금리","환율","증권","목표가","기관","외국인","개미","순매수","순매도","급등","급락","신고가","저평가","상장사","시총","밸류업","배당","자사주","samsung","hynix","hyundai","kospi","kosdaq"]
     return any(w.lower() in text for w in allow)
-
 
 def detect_sentiment(title):
     pos = sum(w in title for w in POSITIVE)
     neg = sum(w in title for w in NEGATIVE)
-    if pos > neg:
-        return "🔵 긍정"
-    if neg > pos:
-        return "🔴 부정"
+    if pos > neg: return "🔵 긍정"
+    if neg > pos: return "🔴 부정"
     return "⚪ 중립"
-
 
 def detect_company(title):
     found = []
     for c, words in COMPANY_RULES.items():
         if any(w.lower() in title.lower() for w in words):
             found.append(c)
-
-    if "HBM" in title:
-        found += ["삼성전자", "SK하이닉스", "한미반도체"]
-    if "PCB" in title:
-        found += ["이수페타시스", "대덕전자", "티엘비"]
-
+    if "HBM" in title: found += ["삼성전자","SK하이닉스","한미반도체"]
+    if "PCB" in title: found += ["이수페타시스","대덕전자","티엘비"]
     return ", ".join(dict.fromkeys(found)) if found else "미분류"
-
 
 def detect_theme(title):
     found = []
@@ -245,16 +172,10 @@ def detect_theme(title):
             found.append(t)
     return ", ".join(dict.fromkeys(found)) if found else "기타"
 
-
 def make_row(title, link, media, dt):
     title = clean_title_tail(title)
-
-    if not valid_title(title):
-        return None
-
-    if not is_korean_market_related(title, media):
-        return None
-
+    if not valid_title(title): return None
+    if not is_stock_related(title, media): return None
     return {
         "title": title,
         "display_title": title[:170] + "..." if len(title) > 170 else title,
@@ -268,18 +189,14 @@ def make_row(title, link, media, dt):
         "inserted_at": now_dt(),
     }
 
-
 def fetch_rss(source):
     rows = []
     feed = feedparser.parse(source["url"])
-
     for item in feed.entries[:120]:
         raw = clean_text(item.get("title", ""))
         link = item.get("link", "")
         published = item.get("published") or item.get("updated") or ""
-
-        if not valid_title(raw):
-            continue
+        if not valid_title(raw): continue
 
         title = raw
         media = source["name"]
@@ -289,155 +206,109 @@ def fetch_rss(source):
             title = clean_text(title)
             media = clean_text(origin) or media
 
-        row = make_row(title, link, media, parse_dt(published))
-        if row:
-            rows.append(row)
-
+        row = make_row(title, link, media, parse_rss_dt(published))
+        if row: rows.append(row)
     return rows
-
 
 def fetch_naver_finance(source):
     rows = []
     try:
-        url = source["url"] + "&_ts=" + str(int(datetime.now().timestamp()))
-        res = requests.get(url, headers=HEADERS, timeout=8)
-        res.encoding = source.get("encoding", "euc-kr")
+        res = requests.get(source["url"] + "&_ts=" + str(int(datetime.now().timestamp())), headers=HEADERS, timeout=8)
+        res.encoding = source["encoding"]
         soup = BeautifulSoup(res.text, "lxml")
 
-        selectors = [
-            "dl.newsList dt.articleSubject a",
-            "dl.newsList dd.articleSubject a",
-            "dt.articleSubject a",
-            "dd.articleSubject a",
-            "a[href*='news_read.naver']",
-            "a[href*='article_id=']",
-        ]
-
+        items = soup.select("dl.newsList")
         seen = set()
 
-        for selector in selectors:
-            for a in soup.select(selector):
+        for item in items:
+            for a in item.select("dt.articleSubject a, dd.articleSubject a, a[href*='news_read.naver'], a[href*='article_id=']"):
                 title = clean_text(a.get_text(" "))
                 href = a.get("href", "")
 
-                if not valid_title(title):
-                    continue
+                if not valid_title(title): continue
 
                 link = absolute_url(href, source["base"])
-
-                block = (
-                    a.find_parent("li")
-                    or a.find_parent("dl")
-                    or a.find_parent("dd")
-                    or a.find_parent("dt")
-                    or a.find_parent()
-                )
-
-                block_text = clean_text(block.get_text(" ") if block else "")
-
-                sib = block.find_next_sibling() if block else None
-                if sib:
-                    block_text += " " + clean_text(sib.get_text(" "))
-
+                block_text = clean_text(item.get_text(" "))
                 dt = parse_text_dt(block_text)
 
                 key = title.lower().replace(" ", "")
-                if key in seen:
-                    continue
-
+                if key in seen: continue
                 seen.add(key)
 
                 row = make_row(title, link, source["name"], dt)
-                if row:
-                    rows.append(row)
+                if row: rows.append(row)
 
-    except Exception:
+        if not rows:
+            for a in soup.select("a[href*='news_read.naver'], a[href*='article_id=']"):
+                title = clean_text(a.get_text(" "))
+                href = a.get("href", "")
+                if not valid_title(title): continue
+                link = absolute_url(href, source["base"])
+                block = a.find_parent("li") or a.find_parent("dl") or a.find_parent()
+                dt = parse_text_dt(clean_text(block.get_text(" ") if block else ""))
+                row = make_row(title, link, source["name"], dt)
+                if row: rows.append(row)
+
+    except:
         pass
-
     return rows
-
 
 def fetch_naver_news(source):
     rows = []
     try:
-        url = source["url"] + "&_ts=" + str(int(datetime.now().timestamp()))
-        res = requests.get(url, headers=HEADERS, timeout=8)
-        res.encoding = source.get("encoding", "euc-kr")
+        res = requests.get(source["url"] + "&_ts=" + str(int(datetime.now().timestamp())), headers=HEADERS, timeout=8)
+        res.encoding = source["encoding"]
         soup = BeautifulSoup(res.text, "lxml")
-
         seen = set()
 
         for a in soup.select("a[href*='n.news.naver.com'], a[href*='news.naver.com/main/read']"):
             title = clean_text(a.get_text(" "))
             href = a.get("href", "")
-
-            if not valid_title(title):
-                continue
+            if not valid_title(title): continue
 
             link = absolute_url(href, source["base"])
             block = a.find_parent("li") or a.find_parent()
-            block_text = clean_text(block.get_text(" ") if block else "")
-            dt = parse_text_dt(block_text)
+            dt = parse_text_dt(clean_text(block.get_text(" ") if block else ""))
 
             key = title.lower().replace(" ", "")
-            if key in seen:
-                continue
-
+            if key in seen: continue
             seen.add(key)
 
             row = make_row(title, link, source["name"], dt)
-            if row:
-                rows.append(row)
-    except Exception:
+            if row: rows.append(row)
+    except:
         pass
     return rows
-
 
 def fetch_generic(source):
     rows = []
     try:
         res = requests.get(source["url"], headers=HEADERS, timeout=8)
-
-        if source.get("encoding"):
-            res.encoding = source["encoding"]
-        elif res.apparent_encoding:
-            res.encoding = res.apparent_encoding
-
+        res.encoding = source.get("encoding") or res.apparent_encoding
         soup = BeautifulSoup(res.text, "lxml")
         seen = set()
 
         for a in soup.find_all("a", href=True):
             title = clean_text(a.get_text(" "))
             href = a.get("href", "")
-
-            if not valid_title(title):
-                continue
+            if not valid_title(title): continue
 
             link = absolute_url(href, source["base"])
-
             block = a.find_parent("li") or a.find_parent("article") or a.find_parent()
-            block_text = clean_text(block.get_text(" ") if block else "")
-            dt = parse_text_dt(block_text)
+            dt = parse_text_dt(clean_text(block.get_text(" ") if block else ""))
 
             key = title.lower().replace(" ", "")
-            if key in seen:
-                continue
-
+            if key in seen: continue
             seen.add(key)
 
             row = make_row(title, link, source["name"], dt)
-            if row:
-                rows.append(row)
-
-    except Exception:
+            if row: rows.append(row)
+    except:
         pass
-
     return rows
-
 
 def fetch_all():
     rows = []
-
     for s in SOURCES:
         if s["type"] == "naver_finance":
             rows.extend(fetch_naver_finance(s))
@@ -447,9 +318,7 @@ def fetch_all():
             rows.extend(fetch_rss(s))
         else:
             rows.extend(fetch_generic(s))
-
     return rows
-
 
 def init_db():
     con = sqlite3.connect(DB_PATH)
@@ -471,11 +340,9 @@ def init_db():
     con.commit()
     con.close()
 
-
 def save_rows(rows):
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
-
     for r in rows:
         cur.execute("""
         INSERT OR IGNORE INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -484,10 +351,8 @@ def save_rows(rows):
             r["media"], r["display_dt"], r["sort_dt"].isoformat() if r["sort_dt"] else "",
             r["link"], r["inserted_at"].isoformat()
         ))
-
     con.commit()
     con.close()
-
 
 def purge():
     cutoff = now_dt() - timedelta(hours=KEEP_HOURS)
@@ -497,38 +362,34 @@ def purge():
     con.commit()
     con.close()
 
-
 def load_db():
     con = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM news", con)
     con.close()
 
-    if df.empty:
-        return df
+    if df.empty: return df
 
     df["sort_dt_real"] = pd.to_datetime(df["sort_dt"], errors="coerce")
     df["inserted_real"] = pd.to_datetime(df["inserted_at"], errors="coerce")
+
+    # 날짜 있는 뉴스 우선 최신순, 날짜 없는 뉴스는 아래에서 수집순
+    df["has_dt"] = df["sort_dt_real"].notna().astype(int)
     df["sort_key"] = df["sort_dt_real"].fillna(df["inserted_real"])
+    df = df[df.apply(lambda r: is_stock_related(r["title"], r["media"]), axis=1)]
 
-    df = df[df.apply(lambda r: is_korean_market_related(r["title"], r["media"]), axis=1)]
-
-    return df.sort_values("sort_key", ascending=False)
-
+    return df.sort_values(["has_dt", "sort_key"], ascending=[False, False])
 
 @st.cache_data(ttl=10)
 def refresh():
     init_db()
-    rows = fetch_all()
-    save_rows(rows)
+    save_rows(fetch_all())
     purge()
     return load_db()
 
-
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 주식 관련 뉴스만 필터링")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 날짜 있는 뉴스 우선 시간순")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
-    import os
     st.cache_data.clear()
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
@@ -555,14 +416,10 @@ with c5:
 
 filtered = df.copy()
 
-if sentiment_filter != "전체":
-    filtered = filtered[filtered["sentiment"] == sentiment_filter]
-if company_filter != "전체":
-    filtered = filtered[filtered["company"] == company_filter]
-if theme_filter != "전체":
-    filtered = filtered[filtered["theme"] == theme_filter]
-if media_filter != "전체":
-    filtered = filtered[filtered["media"] == media_filter]
+if sentiment_filter != "전체": filtered = filtered[filtered["sentiment"] == sentiment_filter]
+if company_filter != "전체": filtered = filtered[filtered["company"] == company_filter]
+if theme_filter != "전체": filtered = filtered[filtered["theme"] == theme_filter]
+if media_filter != "전체": filtered = filtered[filtered["media"] == media_filter]
 if search:
     filtered = filtered[
         filtered["title"].str.contains(search, case=False, na=False)
@@ -574,7 +431,10 @@ if search:
 st.subheader(f"전체 뉴스 {len(filtered)}개")
 
 with st.expander("매체별 수집 개수 확인"):
-    check = df.groupby("media").agg(개수=("title","count")).reset_index().sort_values("개수", ascending=False)
+    check = df.groupby("media").agg(
+        개수=("title","count"),
+        날짜있음=("display_dt", lambda x: (x != "").sum())
+    ).reset_index().sort_values("개수", ascending=False)
     st.dataframe(check, use_container_width=True, hide_index=True)
 
 rows = ""
