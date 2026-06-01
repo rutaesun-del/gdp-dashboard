@@ -10,7 +10,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from streamlit_autorefresh import st_autorefresh
 
-st.set_page_config(page_title="뉴스 터미널", layout="wide")
+st.set_page_config(page_title="실시간 뉴스", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 HEADERS = {
