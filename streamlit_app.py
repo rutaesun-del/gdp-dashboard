@@ -15,12 +15,13 @@ st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
-DB_PATH = "news_terminal_REAL_FINAL_SORTED.db"
-KEEP_HOURS = 24
+DB_PATH = "news_terminal_FINAL_VERIFIED_TIME.db"
 
+KEEP_HOURS = 24
 TIMEOUT = 5
-ARTICLE_TIMEOUT = 3
+ARTICLE_TIMEOUT = 4
 MAX_WORKERS = 10
+
 NAVER_FINANCE_PAGES = 10
 NAVER_NEWS_PAGES = 3
 MAX_LINKS_PER_SOURCE = 80
@@ -87,7 +88,7 @@ STOCK_KEYWORDS = [
     "기관","외국인","개미","시총","ETF","반도체","AI","HBM","GPU","데이터센터","2차전지",
     "배터리","전기차","자동차","조선","원전","로봇","방산","바이오","제약","디스플레이",
     "삼성전자","SK하이닉스","하이닉스","엔비디아","현대차","기아","카카오","네이버",
-    "LG","한화","두산","셀트리온","에코프로","포스코","TSMC","마이크론"
+    "LG","한화","두산","셀트리온","에코프로","포스코","TSMC","마이크론","OLED","D램","낸드"
 ]
 
 BAD_TITLE_WORDS = [
@@ -171,9 +172,15 @@ def parse_rss_dt(x):
     if not x:
         return None
     try:
-        dt = parsedate_to_datetime(x)
+        s = str(x).strip().replace("Z", "+00:00")
+        if "T" in s:
+            dt = datetime.fromisoformat(s)
+        else:
+            dt = parsedate_to_datetime(s)
+
         if dt.tzinfo:
             dt = dt.astimezone(KST)
+
         return dt.replace(tzinfo=None)
     except Exception:
         return None
@@ -182,11 +189,13 @@ def parse_rss_dt(x):
 def parse_text_dt(text):
     text = clean_text(text)
 
-    for p in [
+    patterns = [
         r"(\d{4})[-.](\d{2})[-.](\d{2})[.\s]+(오전|오후)?\s*(\d{1,2}):(\d{2})",
         r"(\d{4})[.](\d{2})[.](\d{2})[.]\s*(오전|오후)?\s*(\d{1,2}):(\d{2})",
         r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)?\s*(\d{1,2}):(\d{2})",
-    ]:
+    ]
+
+    for p in patterns:
         m = re.search(p, text)
         if m:
             y, mo, d, ampm, h, mi = m.groups()
@@ -213,6 +222,14 @@ def parse_text_dt(text):
     return None
 
 
+def is_recent_dt(dt):
+    if not dt:
+        return False
+
+    n = now_dt()
+    return n - timedelta(hours=KEEP_HOURS) <= dt <= n + timedelta(minutes=10)
+
+
 def fetch_article_time(link):
     try:
         res = requests.get(link, headers=HEADERS, timeout=ARTICLE_TIMEOUT)
@@ -221,14 +238,20 @@ def fetch_article_time(link):
 
         candidates = []
 
-        for attr in [
+        meta_keys = [
             {"property": "article:published_time"},
             {"property": "og:regDate"},
+            {"property": "og:article:published_time"},
             {"name": "article:published_time"},
             {"name": "date"},
             {"name": "pubdate"},
             {"name": "publish-date"},
-        ]:
+            {"name": "Date"},
+            {"name": "datePublished"},
+            {"itemprop": "datePublished"},
+        ]
+
+        for attr in meta_keys:
             tag = soup.find("meta", attr)
             if tag and tag.get("content"):
                 candidates.append(tag.get("content"))
@@ -238,11 +261,25 @@ def fetch_article_time(link):
                 candidates.append(t.get("datetime"))
             candidates.append(t.get_text(" "))
 
+        for selector in [
+            ".media_end_head_info_datestamp_time",
+            ".article_info .date",
+            ".date",
+            ".time",
+            ".txt_date",
+            ".num_date",
+            ".article-date",
+            ".view_time",
+            ".news_date",
+        ]:
+            for tag in soup.select(selector):
+                candidates.append(tag.get_text(" "))
+
         candidates.append(soup.get_text(" ", strip=True)[:5000])
 
         for c in candidates:
             dt = parse_rss_dt(c) or parse_text_dt(c)
-            if dt:
+            if is_recent_dt(dt):
                 return dt
 
     except Exception:
@@ -296,6 +333,7 @@ def detect_sentiment(title):
 
 def detect_company(title):
     found = []
+
     for c, words in COMPANY_RULES.items():
         if any(w.lower() in title.lower() for w in words):
             found.append(c)
@@ -310,6 +348,7 @@ def detect_company(title):
 
 def detect_theme(title):
     found = []
+
     for t, words in THEME_RULES.items():
         if any(w.lower() in title.lower() for w in words):
             found.append(t)
@@ -323,11 +362,13 @@ def make_row(title, link, media, dt):
     if not valid_title(title):
         return None
 
-    if dt is None:
+    if not is_recent_dt(dt):
         dt = fetch_article_time(link)
 
+    if not is_recent_dt(dt):
+        return None
+
     collected_at = now_dt()
-    has_article_time = dt is not None
 
     return {
         "title": title,
@@ -338,8 +379,7 @@ def make_row(title, link, media, dt):
         "media": media,
         "display_dt": display_dt(dt),
         "sort_dt": dt,
-        "sort_ts": dt.timestamp() if dt else None,
-        "has_article_time": 1 if has_article_time else 0,
+        "sort_ts": dt.timestamp(),
         "dedupe_key": normalize_title_for_dedupe(title),
         "link": link,
         "inserted_at": collected_at,
@@ -372,7 +412,6 @@ def fetch_rss(source):
 
 def fetch_daum_finance(source):
     rows, seen = [], set()
-
     urls = ["https://news.daum.net/finance", "https://m.finance.daum.net/news"]
 
     for url in urls:
@@ -548,16 +587,13 @@ def fetch_one(source):
 
 def fetch_all():
     rows = []
-
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = [executor.submit(fetch_one, s) for s in SOURCES]
-
         for future in as_completed(futures):
             try:
                 rows.extend(future.result())
             except Exception:
                 pass
-
     return rows
 
 
@@ -575,7 +611,6 @@ def init_db():
         display_dt TEXT,
         sort_dt TEXT,
         sort_ts REAL,
-        has_article_time INTEGER,
         dedupe_key TEXT,
         link TEXT UNIQUE,
         inserted_at TEXT
@@ -591,7 +626,7 @@ def save_rows(rows):
 
     for r in rows:
         cur.execute("""
-        INSERT INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(link) DO UPDATE SET
             title=excluded.title,
             display_title=excluded.display_title,
@@ -602,14 +637,12 @@ def save_rows(rows):
             display_dt=excluded.display_dt,
             sort_dt=excluded.sort_dt,
             sort_ts=excluded.sort_ts,
-            has_article_time=excluded.has_article_time,
             dedupe_key=excluded.dedupe_key,
             inserted_at=excluded.inserted_at
         """, (
             r["title"], r["display_title"], r["sentiment"], r["company"], r["theme"],
-            r["media"], r["display_dt"], r["sort_dt"].isoformat() if r["sort_dt"] else "",
-            float(r["sort_ts"]) if r["sort_ts"] else None,
-            int(r["has_article_time"]), r["dedupe_key"], r["link"], r["inserted_at"].isoformat()
+            r["media"], r["display_dt"], r["sort_dt"].isoformat(),
+            float(r["sort_ts"]), r["dedupe_key"], r["link"], r["inserted_at"].isoformat()
         ))
 
     con.commit()
@@ -634,10 +667,10 @@ def load_db():
         return df
 
     df["sort_ts"] = pd.to_numeric(df["sort_ts"], errors="coerce")
-    df["has_article_time"] = pd.to_numeric(df["has_article_time"], errors="coerce").fillna(0).astype(int)
 
     df = (
-        df.sort_values(["has_article_time", "sort_ts"], ascending=[False, False], kind="mergesort")
+        df.dropna(subset=["sort_ts"])
+          .sort_values("sort_ts", ascending=False, kind="mergesort")
           .drop_duplicates(subset=["dedupe_key"], keep="first")
           .reset_index(drop=True)
     )
@@ -654,7 +687,7 @@ def refresh():
 
 
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 원문 기사시간 기준 정렬 | 주식관련 필터 | 중복 제거")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 기사만 | 원문 기사시간 기준 내림차순 | 주식관련 필터 | 중복 제거")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
     st.cache_data.clear()
@@ -672,16 +705,12 @@ c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 2])
 
 with c1:
     sentiment_filter = st.selectbox("감성", ["전체", "🔵 긍정", "⚪ 중립", "🔴 부정"])
-
 with c2:
     company_filter = st.selectbox("회사명", ["전체"] + sorted(df["company"].dropna().unique().tolist()))
-
 with c3:
     theme_filter = st.selectbox("테마", ["전체"] + sorted(df["theme"].dropna().unique().tolist()))
-
 with c4:
     media_filter = st.selectbox("매체", ["전체"] + sorted(df["media"].dropna().unique().tolist()))
-
 with c5:
     search = st.text_input("검색")
 
@@ -703,7 +732,7 @@ if search:
         | filtered["media"].str.contains(search, case=False, na=False)
     ]
 
-filtered = filtered.sort_values(["has_article_time", "sort_ts"], ascending=[False, False], kind="mergesort").reset_index(drop=True)
+filtered = filtered.sort_values("sort_ts", ascending=False, kind="mergesort").reset_index(drop=True)
 
 st.subheader(f"전체 뉴스 {len(filtered)}개")
 
@@ -712,7 +741,6 @@ with st.expander("매체별 수집 개수 확인"):
     st.dataframe(check, use_container_width=True, hide_index=True)
 
 rows = ""
-
 for _, r in filtered.head(1500).iterrows():
     rows += f"""
     <tr>
@@ -749,9 +777,7 @@ components.html(f"""
     overflow: hidden;
     text-overflow: ellipsis;
 }}
-.news-table tr:hover {{
-    background:#f8f9fa;
-}}
+.news-table tr:hover {{ background:#f8f9fa; }}
 .title {{ width:70%; font-weight:600; }}
 .title a {{ color:#005bac; text-decoration:none; }}
 .title a:hover {{ text-decoration:underline; }}
