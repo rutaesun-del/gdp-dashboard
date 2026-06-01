@@ -1,9 +1,4 @@
-import re
-import html
-import os
-import sqlite3
-import requests
-import feedparser
+import re, html, os, sqlite3, requests, feedparser
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -20,8 +15,7 @@ st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
-
-DB_PATH = "news_terminal_absolute_final.db"
+DB_PATH = "news_terminal_final_media_optimized.db"
 KEEP_HOURS = 24
 
 TIMEOUT = 5
@@ -41,45 +35,27 @@ def google_rss(q):
 
 
 SOURCES = [
-    {
-        "name": "네이버금융",
-        "type": "naver_finance",
-        "url": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
-        "base": "https://finance.naver.com",
-        "encoding": "euc-kr",
-    },
-    {
-        "name": "네이버뉴스",
-        "type": "naver_news",
-        "url": "https://news.naver.com/main/list.naver?mode=LSD&mid=shm&sid1=101",
-        "base": "https://news.naver.com",
-        "encoding": "euc-kr",
-    },
-    {
-        "name": "다음금융",
-        "type": "daum_finance",
-        "url": "https://finance.daum.net/news",
-        "base": "https://finance.daum.net",
-        "encoding": "utf-8",
-    },
+    {"name": "네이버금융", "type": "naver_finance"},
+    {"name": "네이버뉴스", "type": "naver_news"},
+    {"name": "다음금융", "type": "daum_finance"},
 
     {"name": "한국경제", "type": "rss", "url": "https://www.hankyung.com/feed/all-news"},
     {"name": "한국경제-증권", "type": "rss", "url": "https://www.hankyung.com/feed/finance"},
     {"name": "매일경제", "type": "rss", "url": "https://www.mk.co.kr/rss/30000001/"},
     {"name": "구글뉴스-경제", "type": "rss", "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko"},
 
-    {"name": "서울경제", "type": "generic", "url": "https://www.sedaily.com/NewsList/GA", "base": "https://www.sedaily.com", "encoding": "utf-8", "allow": ["/NewsView/"]},
-    {"name": "이데일리", "type": "generic", "url": "https://www.edaily.co.kr/News/Stock", "base": "https://www.edaily.co.kr", "encoding": "utf-8", "allow": ["/News/Read"]},
-    {"name": "머니투데이", "type": "generic", "url": "https://news.mt.co.kr/newsList.html?pDepth1=stock", "base": "https://news.mt.co.kr", "encoding": "utf-8", "allow": ["/mtview.php", "/newsView.html"]},
-    {"name": "아시아경제", "type": "generic", "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99", "base": "https://www.asiae.co.kr", "encoding": "utf-8", "allow": ["/article/"]},
-    {"name": "파이낸셜뉴스", "type": "generic", "url": "https://www.fnnews.com/section/002000000", "base": "https://www.fnnews.com", "encoding": "utf-8", "allow": ["/news/"]},
-    {"name": "조선비즈", "type": "generic", "url": "https://biz.chosun.com/stock/", "base": "https://biz.chosun.com", "encoding": "utf-8", "allow": ["/stock/", "/industry/", "/it-science/"]},
-    {"name": "전자신문", "type": "generic", "url": "https://www.etnews.com/news/section.html?id1=20", "base": "https://www.etnews.com", "encoding": "utf-8", "allow": ["/news/article.html"]},
-    {"name": "ZDNet", "type": "generic", "url": "https://zdnet.co.kr/news/", "base": "https://zdnet.co.kr", "encoding": "utf-8", "allow": ["/view/"]},
-    {"name": "디지털데일리", "type": "generic", "url": "https://www.ddaily.co.kr/", "base": "https://www.ddaily.co.kr", "encoding": "utf-8", "allow": ["/page/view/"]},
-    {"name": "연합뉴스", "type": "generic", "url": "https://www.yna.co.kr/economy/all", "base": "https://www.yna.co.kr", "encoding": "utf-8", "allow": ["/view/"]},
-    {"name": "뉴스1", "type": "generic", "url": "https://www.news1.kr/economy", "base": "https://www.news1.kr", "encoding": "utf-8", "allow": ["/articles/"]},
-    {"name": "한국일보", "type": "generic", "url": "https://www.hankookilbo.com/News/Economy", "base": "https://www.hankookilbo.com", "encoding": "utf-8", "allow": ["/News/Read"]},
+    {"name": "서울경제", "type": "generic", "url": "https://www.sedaily.com/NewsList/GA", "base": "https://www.sedaily.com", "allow": ["/NewsView/"]},
+    {"name": "이데일리", "type": "generic", "url": "https://www.edaily.co.kr/News/Stock", "base": "https://www.edaily.co.kr", "allow": ["/News/Read"]},
+    {"name": "머니투데이", "type": "generic", "url": "https://news.mt.co.kr/newsList.html?pDepth1=stock", "base": "https://news.mt.co.kr", "allow": ["/mtview.php", "/newsView.html"]},
+    {"name": "아시아경제", "type": "generic", "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99", "base": "https://www.asiae.co.kr", "allow": ["/article/"]},
+    {"name": "파이낸셜뉴스", "type": "generic", "url": "https://www.fnnews.com/section/002000000", "base": "https://www.fnnews.com", "allow": ["/news/"]},
+    {"name": "조선비즈", "type": "generic", "url": "https://biz.chosun.com/stock/", "base": "https://biz.chosun.com", "allow": ["/stock/", "/industry/", "/it-science/"]},
+    {"name": "전자신문", "type": "generic", "url": "https://www.etnews.com/news/section.html?id1=20", "base": "https://www.etnews.com", "allow": ["/news/article.html"]},
+    {"name": "ZDNet", "type": "generic", "url": "https://zdnet.co.kr/news/", "base": "https://zdnet.co.kr", "allow": ["/view/"]},
+    {"name": "디지털데일리", "type": "generic", "url": "https://www.ddaily.co.kr/", "base": "https://www.ddaily.co.kr", "allow": ["/page/view/"]},
+    {"name": "연합뉴스", "type": "generic", "url": "https://www.yna.co.kr/economy/all", "base": "https://www.yna.co.kr", "allow": ["/view/"]},
+    {"name": "뉴스1", "type": "generic", "url": "https://www.news1.kr/economy", "base": "https://www.news1.kr", "allow": ["/articles/"]},
+    {"name": "한국일보", "type": "generic", "url": "https://www.hankookilbo.com/News/Economy", "base": "https://www.hankookilbo.com", "allow": ["/News/Read"]},
 
     {"name": "뉴시스", "type": "rss", "url": google_rss("site:newsis.com 경제 OR 증시 OR 기업 OR 반도체")},
     {"name": "헤럴드경제", "type": "rss", "url": google_rss("site:heraldcorp.com 경제 OR 증시 OR 기업 OR 반도체")},
@@ -91,22 +67,17 @@ SOURCES = [
 
 
 POSITIVE = [
-    "수주", "계약", "공급", "양산", "증설", "투자", "흑자", "호실적",
-    "최초", "최고", "최대", "역대", "갱신", "상향", "돌파", "승인",
-    "성장", "강세", "급등", "확대", "협력", "기대", "호재", "개선",
-    "수혜", "신고가", "사상 최고", "반등", "회복", "증가", "확보",
-    "선정", "채택", "성과", "호황", "순항", "출시", "개발", "상승",
-    "랠리", "목표가 상향", "실적 개선", "턴어라운드", "흑자전환",
-    "매출 증가", "영업익 증가", "수익성 개선", "완판", "대박",
-    "재평가", "본격화", "국산화", "상장 추진", "대규모", "신사업",
+    "수주","계약","공급","양산","증설","투자","흑자","호실적","최초","최고","최대","역대","갱신",
+    "상향","돌파","승인","성장","강세","급등","확대","협력","기대","호재","개선","수혜","신고가",
+    "사상 최고","반등","회복","증가","확보","선정","채택","성과","호황","순항","출시","개발",
+    "상승","랠리","목표가 상향","실적 개선","턴어라운드","흑자전환","매출 증가","영업익 증가",
+    "수익성 개선","완판","대박","재평가","본격화","국산화","상장 추진","대규모","신사업"
 ]
 
 NEGATIVE = [
-    "적자", "감산", "규제", "소송", "리콜", "중단", "악화", "급락",
-    "하락", "우려", "부진", "손실", "취소", "철회", "약세", "압박",
-    "감소", "실패", "파업", "제재", "폭락", "경고", "쇼크", "둔화",
-    "불확실", "위기", "타격", "하향", "퇴출", "논란", "과징금",
-    "상장폐지", "거래정지", "압수수색",
+    "적자","감산","규제","소송","리콜","중단","악화","급락","하락","우려","부진","손실","취소",
+    "철회","약세","압박","감소","실패","파업","제재","폭락","경고","쇼크","둔화","불확실",
+    "위기","타격","하향","퇴출","논란","과징금","상장폐지","거래정지","압수수색"
 ]
 
 COMPANY_RULES = {
@@ -141,20 +112,18 @@ THEME_RULES = {
 }
 
 BAD_TITLE_WORDS = [
-    "포토", "화보", "사진", "영상", "기자간담회", "작가간담회",
-    "기자 모집", "수습기자", "채용", "공모", "공지", "알림",
-    "로그인", "구독", "전체보기", "이전", "다음", "메뉴", "검색",
-    "바로가기", "댓글", "공유", "기사목록", "많이 본 뉴스", "인기검색어",
-    "서비스 약관", "개인정보", "저작권", "facebook", "instagram",
-    "youtube", "트위터", "유튜브", "인스타그램", "페이스북",
-    "오늘의 증시일정", "24시간 뉴스센터", "광고", "newsletter",
-    "credit cards", "retire", "retirement", "wedding expenses",
-    "hotel credit", "municipal bond", "KOREA NOW", "K-Culture NOW",
-    "계약사", "제휴문의", "자주 묻는 질문", "보도자료", "국내배포",
-    "해외배포", "Games", "공감 많은 뉴스", "오래 머문 뉴스",
-    "이 시각 헤드라인", "The BeLT", "국제옵저버", "청소년보호정책",
-    "수용자권익위원회", "연합뉴스 트위터", "연합뉴스 유튜브",
-    "연합뉴스 인스타그램", "연합뉴스 페이스북",
+    "포토","화보","사진","영상","갤러리","운세","오늘의 운세","별자리 운세",
+    "책꽂이","200자 책꽂이","미술","비즈니스 코치","작가","시인","문학","문화재단",
+    "기자간담회","작가간담회","기자 모집","수습기자","채용","공모","공지","알림",
+    "로그인","구독","전체보기","이전","다음","메뉴","검색","바로가기","댓글","공유",
+    "기사목록","많이 본 뉴스","인기검색어","서비스 약관","개인정보","저작권",
+    "facebook","instagram","youtube","트위터","유튜브","인스타그램","페이스북",
+    "오늘의 증시일정","24시간 뉴스센터","광고","newsletter","credit cards",
+    "retire","retirement","wedding expenses","hotel credit","municipal bond",
+    "KOREA NOW","K-Culture NOW","계약사","제휴문의","자주 묻는 질문","보도자료",
+    "국내배포","해외배포","Games","공감 많은 뉴스","오래 머문 뉴스","이 시각 헤드라인",
+    "The BeLT","국제옵저버","청소년보호정책","수용자권익위원회",
+    "연합뉴스 트위터","연합뉴스 유튜브","연합뉴스 인스타그램","연합뉴스 페이스북"
 ]
 
 
@@ -342,7 +311,6 @@ def fetch_rss(source):
 
 def fetch_daum_finance(source):
     rows, seen = [], set()
-
     rss_list = [
         google_rss("site:finance.daum.net 경제 OR 증시 OR 주식 OR 기업"),
         google_rss("site:v.daum.net 경제 OR 증시 OR 주식 OR 반도체 OR 기업"),
@@ -363,9 +331,8 @@ def fetch_daum_finance(source):
             media = "다음금융"
 
             if " - " in raw:
-                title, origin = raw.rsplit(" - ", 1)
+                title, _origin = raw.rsplit(" - ", 1)
                 title = clean_text(title)
-                media = clean_text(origin) or "다음금융"
 
             key = title.lower().replace(" ", "")
             if key in seen:
@@ -382,8 +349,8 @@ def fetch_daum_finance(source):
 def fetch_naver_finance(source):
     rows, seen = [], set()
 
-    try:
-        for page in range(1, NAVER_FINANCE_PAGES + 1):
+    for page in range(1, NAVER_FINANCE_PAGES + 1):
+        try:
             url = (
                 "https://finance.naver.com/news/news_list.naver"
                 f"?mode=LSS2D&section_id=101&section_id2=258&page={page}"
@@ -408,7 +375,7 @@ def fetch_naver_finance(source):
                 if not valid_title(title):
                     continue
 
-                link = absolute_url(href, source["base"])
+                link = absolute_url(href, "https://finance.naver.com")
 
                 parent = (
                     a.find_parent("dl")
@@ -429,15 +396,14 @@ def fetch_naver_finance(source):
                 key = title.lower().replace(" ", "")
                 if key in seen:
                     continue
-
                 seen.add(key)
 
                 row = make_row(title, link, "네이버금융", dt)
                 if row:
                     rows.append(row)
 
-    except Exception:
-        pass
+        except Exception:
+            continue
 
     return rows
 
@@ -445,8 +411,8 @@ def fetch_naver_finance(source):
 def fetch_naver_news(source):
     rows, seen = [], set()
 
-    try:
-        for page in range(1, NAVER_NEWS_PAGES + 1):
+    for page in range(1, NAVER_NEWS_PAGES + 1):
+        try:
             url = (
                 "https://news.naver.com/main/list.naver"
                 f"?mode=LSD&mid=shm&sid1=101&page={page}"
@@ -470,22 +436,21 @@ def fetch_naver_news(source):
                 if not valid_title(title):
                     continue
 
-                link = absolute_url(href, source["base"])
+                link = absolute_url(href, "https://news.naver.com")
                 block_text = clean_text(item.get_text(" "))
                 dt = parse_text_dt(block_text)
 
                 key = title.lower().replace(" ", "")
                 if key in seen:
                     continue
-
                 seen.add(key)
 
                 row = make_row(title, link, "네이버뉴스", dt)
                 if row:
                     rows.append(row)
 
-    except Exception:
-        pass
+        except Exception:
+            continue
 
     return rows
 
@@ -617,7 +582,6 @@ def save_rows(rows):
 
 def purge_old():
     cutoff = now_dt() - timedelta(hours=KEEP_HOURS)
-
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
     cur.execute("DELETE FROM news WHERE inserted_at < ?", (cutoff.isoformat(),))
@@ -638,10 +602,7 @@ def load_db():
     df["inserted_ts"] = df["inserted_real"].astype("int64") / 1_000_000_000
     df["final_ts"] = df["sort_ts"].fillna(df["inserted_ts"])
 
-    df = (
-        df.sort_values("final_ts", ascending=False, kind="mergesort")
-          .reset_index(drop=True)
-    )
+    df = df.sort_values("final_ts", ascending=False, kind="mergesort").reset_index(drop=True)
 
     return df
 
@@ -655,7 +616,7 @@ def refresh():
 
 
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 전체 뉴스 시간순 정렬 | 제목 클릭 시 원문 이동")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 누적 저장 | 매체 통합 시간순 정렬 | 제목 클릭 시 원문 이동")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
     st.cache_data.clear()
@@ -710,20 +671,12 @@ if search:
         | filtered["media"].str.contains(search, case=False, na=False)
     ]
 
-filtered = (
-    filtered.sort_values("final_ts", ascending=False, kind="mergesort")
-    .reset_index(drop=True)
-)
+filtered = filtered.sort_values("final_ts", ascending=False, kind="mergesort").reset_index(drop=True)
 
 st.subheader(f"전체 뉴스 {len(filtered)}개")
 
 with st.expander("매체별 수집 개수 확인"):
-    check = (
-        df.groupby("media")
-        .agg(전체=("title", "count"))
-        .reset_index()
-        .sort_values("전체", ascending=False)
-    )
+    check = df.groupby("media").agg(전체=("title", "count")).reset_index().sort_values("전체", ascending=False)
     st.dataframe(check, use_container_width=True, hide_index=True)
 
 rows = ""
@@ -767,33 +720,14 @@ components.html(f"""
 .news-table tr:hover {{
     background: #f8f9fa;
 }}
-.title {{
-    width: 70%;
-    font-weight: 600;
-}}
-.title a {{
-    color: #005bac;
-    text-decoration: none;
-}}
-.title a:hover {{
-    text-decoration: underline;
-}}
-.sentiment {{
-    width: 62px;
-    font-weight: 700;
-}}
-.company {{
-    width: 90px;
-}}
-.theme {{
-    width: 68px;
-}}
-.media {{
-    width: 90px;
-}}
-.date {{
-    width: 105px;
-}}
+.title {{ width:70%; font-weight:600; }}
+.title a {{ color:#005bac; text-decoration:none; }}
+.title a:hover {{ text-decoration:underline; }}
+.sentiment {{ width:62px; font-weight:700; }}
+.company {{ width:90px; }}
+.theme {{ width:68px; }}
+.media {{ width:90px; }}
+.date {{ width:105px; }}
 </style>
 
 <table class="news-table">
