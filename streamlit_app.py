@@ -91,23 +91,12 @@ SOURCES = [
         "encoding": "euc-kr",
     },
     {
-        "name": "다음금융",
-        "type": "generic",
-        "url": "https://m.finance.daum.net/news",
-        "base": "https://m.finance.daum.net",
-        "encoding": "utf-8",
-    },
-    {
         "name": "다음경제",
         "type": "generic",
         "url": "https://news.daum.net/economy",
         "base": "https://news.daum.net",
         "encoding": "utf-8",
-    },
-    {
-        "name": "구글뉴스",
-        "type": "rss",
-        "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko",
+        "allow": ["v.daum.net", "news.v.daum.net"],
     },
     {
         "name": "한국경제",
@@ -125,11 +114,17 @@ SOURCES = [
         "url": "https://www.mk.co.kr/rss/30000001/",
     },
     {
+        "name": "구글뉴스",
+        "type": "rss",
+        "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko",
+    },
+    {
         "name": "아시아경제",
         "type": "generic",
         "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99",
         "base": "https://www.asiae.co.kr",
         "encoding": "utf-8",
+        "allow": ["asiae.co.kr/article"],
     },
     {
         "name": "한국일보",
@@ -137,6 +132,7 @@ SOURCES = [
         "url": "https://www.hankookilbo.com/News/Economy",
         "base": "https://www.hankookilbo.com",
         "encoding": "utf-8",
+        "allow": ["hankookilbo.com/News/Read"],
     },
 ]
 
@@ -194,7 +190,7 @@ def parse_text_dt(text):
     if m:
         return now_dt() - timedelta(hours=int(m.group(1)))
 
-    return now_dt()
+    return None
 
 
 def display_dt(dt):
@@ -204,18 +200,35 @@ def display_dt(dt):
 def valid_title(title):
     if not title:
         return False
+
     title = clean_text(title)
 
-    if len(title) < 8 or len(title) > 180:
+    if len(title) < 10 or len(title) > 180:
         return False
 
     bad_words = [
         "로그인", "구독", "전체보기", "이전", "다음", "메뉴", "검색",
         "바로가기", "댓글", "공유", "기사목록", "많이 본 뉴스",
-        "인기검색어", "뉴스 검색", "오늘의 증시일정"
+        "인기검색어", "뉴스 검색", "오늘의 증시일정", "서비스 약관",
+        "개인정보처리방침", "저작권", "facebook", "facebook_gray",
+        "instagram", "insta_gray", "youtube", "youtube_gray",
+        "Visual-News", "©", "AZ Corp", "뉴스센터", "24시간 뉴스센터",
+        "신규", "상승", "하락", "보합", "고가", "저가"
     ]
 
-    return not any(word in title for word in bad_words)
+    if any(word.lower() in title.lower() for word in bad_words):
+        return False
+
+    if re.match(r"^\d+\s*위[, ]", title):
+        return False
+
+    if re.match(r"^\d+\.\d+", title):
+        return False
+
+    if len(re.sub(r"[가-힣A-Za-z0-9]", "", title)) > len(title) * 0.55:
+        return False
+
+    return True
 
 
 def detect_sentiment(title):
@@ -258,7 +271,7 @@ def make_row(title, link, media, dt):
 
     return {
         "제목": title,
-        "표시제목": title[:165] + "..." if len(title) > 165 else title,
+        "표시제목": title[:170] + "..." if len(title) > 170 else title,
         "감성": detect_sentiment(title),
         "회사명": detect_company(title),
         "테마": detect_theme(title),
@@ -318,14 +331,10 @@ def fetch_naver_finance(source):
 
             link = absolute_url(href, source["base"])
 
-            block = a.find_parent()
+            block = a.find_parent("li") or a.find_parent("dl") or a.find_parent()
             block_text = clean_text(block.get_text(" ") if block else "")
 
-            sib = block.find_next_sibling() if block else None
-            if sib:
-                block_text += " " + clean_text(sib.get_text(" "))
-
-            dt = parse_text_dt(block_text)
+            dt = parse_text_dt(block_text) or now_dt()
 
             candidates.append((title, link, dt))
 
@@ -368,7 +377,8 @@ def fetch_naver_news(source):
             block = a.find_parent("li") or a.find_parent()
             block_text = clean_text(block.get_text(" ") if block else "")
 
-            dt = parse_text_dt(block_text)
+            dt = parse_text_dt(block_text) or now_dt()
+
             candidates.append((title, link, dt))
 
         seen = set()
@@ -402,6 +412,8 @@ def fetch_generic(source):
 
         candidates = []
 
+        allow = source.get("allow", [])
+
         for a in soup.find_all("a", href=True):
             title = clean_text(a.get_text(" "))
             href = a.get("href", "")
@@ -410,12 +422,20 @@ def fetch_generic(source):
                 continue
 
             link = absolute_url(href, source["base"])
+
             if not link.startswith("http"):
                 continue
 
-            block = a.find_parent()
+            if allow and not any(pattern in link for pattern in allow):
+                continue
+
+            block = a.find_parent("li") or a.find_parent("article") or a.find_parent()
             block_text = clean_text(block.get_text(" ") if block else "")
+
             dt = parse_text_dt(block_text)
+
+            if dt is None:
+                continue
 
             candidates.append((title, link, dt))
 
@@ -517,9 +537,10 @@ with st.expander("매체별 최신 시간 / 수집 개수 확인"):
         df.groupby("매체")
         .agg(최신=("정렬일자", "max"), 개수=("제목", "count"))
         .reset_index()
+        .sort_values("최신", ascending=False)
     )
     check["최신"] = check["최신"].apply(display_dt)
-    st.dataframe(check.sort_values("최신", ascending=False), use_container_width=True, hide_index=True)
+    st.dataframe(check, use_container_width=True, hide_index=True)
 
 rows_html = ""
 
@@ -573,7 +594,7 @@ table_html = f"""
     background: #f8f9fa;
 }}
 .news-table .title {{
-    width: 72%;
+    width: 74%;
     font-weight: 600;
 }}
 .news-table .title a {{
@@ -584,20 +605,20 @@ table_html = f"""
     text-decoration: underline;
 }}
 .news-table .sentiment {{
-    width: 64px;
+    width: 62px;
     font-weight: 700;
 }}
 .news-table .company {{
-    width: 95px;
+    width: 90px;
 }}
 .news-table .theme {{
-    width: 70px;
+    width: 68px;
 }}
 .news-table .media {{
-    width: 85px;
+    width: 80px;
 }}
 .news-table .date {{
-    width: 68px;
+    width: 66px;
 }}
 </style>
 
