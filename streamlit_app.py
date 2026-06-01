@@ -11,7 +11,6 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from streamlit_autorefresh import st_autorefresh
 
-
 st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
@@ -21,6 +20,67 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
+
+SOURCES = [
+    {
+        "name": "네이버뉴스",
+        "type": "naver_news",
+        "url": "https://news.naver.com/main/list.naver?mode=LSD&mid=shm&sid1=101",
+        "base": "https://news.naver.com",
+        "encoding": "euc-kr",
+    },
+    {
+        "name": "네이버금융",
+        "type": "naver_finance",
+        "url": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
+        "base": "https://finance.naver.com",
+        "encoding": "euc-kr",
+    },
+    {
+        "name": "다음경제",
+        "type": "generic",
+        "url": "https://news.daum.net/economy",
+        "base": "https://news.daum.net",
+        "encoding": "utf-8",
+        "allow": ["v.daum.net", "news.v.daum.net"],
+    },
+    {
+        "name": "한국경제",
+        "type": "rss",
+        "url": "https://www.hankyung.com/feed/all-news",
+    },
+    {
+        "name": "한국경제-증권",
+        "type": "rss",
+        "url": "https://www.hankyung.com/feed/finance",
+    },
+    {
+        "name": "매일경제",
+        "type": "rss",
+        "url": "https://www.mk.co.kr/rss/30000001/",
+    },
+    {
+        "name": "아시아경제",
+        "type": "generic",
+        "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99",
+        "base": "https://www.asiae.co.kr",
+        "encoding": "utf-8",
+        "allow": ["asiae.co.kr/article"],
+    },
+    {
+        "name": "한국일보",
+        "type": "generic",
+        "url": "https://www.hankookilbo.com/News/Economy",
+        "base": "https://www.hankookilbo.com",
+        "encoding": "utf-8",
+        "allow": ["hankookilbo.com/News/Read"],
+    },
+    {
+        "name": "구글뉴스",
+        "type": "rss",
+        "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko",
+    },
+]
 
 POSITIVE = [
     "수주", "계약", "공급", "양산", "증설", "투자", "흑자", "호실적",
@@ -75,71 +135,8 @@ THEME_RULES = {
     "자동차": ["현대차", "기아", "전기차", "자동차"],
 }
 
-SOURCES = [
-    {
-        "name": "네이버금융",
-        "type": "naver_finance",
-        "url": "https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258",
-        "base": "https://finance.naver.com",
-        "encoding": "euc-kr",
-    },
-    {
-        "name": "네이버뉴스",
-        "type": "naver_news",
-        "url": "https://news.naver.com/main/list.naver?mode=LSD&mid=shm&sid1=101",
-        "base": "https://news.naver.com",
-        "encoding": "euc-kr",
-    },
-    {
-        "name": "다음경제",
-        "type": "generic",
-        "url": "https://news.daum.net/economy",
-        "base": "https://news.daum.net",
-        "encoding": "utf-8",
-        "allow": ["v.daum.net", "news.v.daum.net"],
-    },
-    {
-        "name": "한국경제",
-        "type": "rss",
-        "url": "https://www.hankyung.com/feed/all-news",
-    },
-    {
-        "name": "한국경제-증권",
-        "type": "rss",
-        "url": "https://www.hankyung.com/feed/finance",
-    },
-    {
-        "name": "매일경제",
-        "type": "rss",
-        "url": "https://www.mk.co.kr/rss/30000001/",
-    },
-    {
-        "name": "구글뉴스",
-        "type": "rss",
-        "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko",
-    },
-    {
-        "name": "아시아경제",
-        "type": "generic",
-        "url": "https://www.asiae.co.kr/news/list.htm?sec=eco99",
-        "base": "https://www.asiae.co.kr",
-        "encoding": "utf-8",
-        "allow": ["asiae.co.kr/article"],
-    },
-    {
-        "name": "한국일보",
-        "type": "generic",
-        "url": "https://www.hankookilbo.com/News/Economy",
-        "base": "https://www.hankookilbo.com",
-        "encoding": "utf-8",
-        "allow": ["hankookilbo.com/News/Read"],
-    },
-]
-
-
 def clean_text(text):
     return re.sub(r"\s+", " ", text or "").strip()
-
 
 def absolute_url(link, base):
     if not link:
@@ -152,22 +149,19 @@ def absolute_url(link, base):
         return base + link
     return base + "/" + link
 
-
 def now_dt():
     return datetime.now(KST).replace(tzinfo=None)
 
-
 def parse_rss_dt(value):
     if not value:
-        return now_dt()
+        return None
     try:
         dt = parsedate_to_datetime(value)
         if dt.tzinfo:
             dt = dt.astimezone(KST)
         return dt.replace(tzinfo=None)
     except Exception:
-        return now_dt()
-
+        return None
 
 def parse_text_dt(text):
     text = clean_text(text)
@@ -192,10 +186,10 @@ def parse_text_dt(text):
 
     return None
 
-
 def display_dt(dt):
+    if dt is None:
+        return ""
     return dt.strftime("%m-%d %H:%M")
-
 
 def valid_title(title):
     if not title:
@@ -230,7 +224,6 @@ def valid_title(title):
 
     return True
 
-
 def detect_sentiment(title):
     pos = sum(word in title for word in POSITIVE)
     neg = sum(word in title for word in NEGATIVE)
@@ -240,7 +233,6 @@ def detect_sentiment(title):
     if neg > pos:
         return "🔴 부정"
     return "⚪ 중립"
-
 
 def detect_company(title):
     found = []
@@ -255,7 +247,6 @@ def detect_company(title):
 
     return ", ".join(dict.fromkeys(found)) if found else "미분류"
 
-
 def detect_theme(title):
     found = []
 
@@ -264,7 +255,6 @@ def detect_theme(title):
             found.append(theme)
 
     return ", ".join(dict.fromkeys(found)) if found else "기타"
-
 
 def make_row(title, link, media, dt):
     title = clean_text(title)
@@ -280,7 +270,6 @@ def make_row(title, link, media, dt):
         "정렬일자": dt,
         "링크": link,
     }
-
 
 def fetch_rss(source):
     rows = []
@@ -309,7 +298,6 @@ def fetch_rss(source):
 
     return rows
 
-
 def fetch_naver_finance(source):
     rows = []
 
@@ -334,7 +322,7 @@ def fetch_naver_finance(source):
             block = a.find_parent("li") or a.find_parent("dl") or a.find_parent()
             block_text = clean_text(block.get_text(" ") if block else "")
 
-            dt = parse_text_dt(block_text) or now_dt()
+            dt = parse_text_dt(block_text)
 
             candidates.append((title, link, dt))
 
@@ -351,7 +339,6 @@ def fetch_naver_finance(source):
         pass
 
     return rows
-
 
 def fetch_naver_news(source):
     rows = []
@@ -377,7 +364,7 @@ def fetch_naver_news(source):
             block = a.find_parent("li") or a.find_parent()
             block_text = clean_text(block.get_text(" ") if block else "")
 
-            dt = parse_text_dt(block_text) or now_dt()
+            dt = parse_text_dt(block_text)
 
             candidates.append((title, link, dt))
 
@@ -395,7 +382,6 @@ def fetch_naver_news(source):
 
     return rows
 
-
 def fetch_generic(source):
     rows = []
 
@@ -411,7 +397,6 @@ def fetch_generic(source):
         soup = BeautifulSoup(res.text, "lxml")
 
         candidates = []
-
         allow = source.get("allow", [])
 
         for a in soup.find_all("a", href=True):
@@ -434,9 +419,6 @@ def fetch_generic(source):
 
             dt = parse_text_dt(block_text)
 
-            if dt is None:
-                continue
-
             candidates.append((title, link, dt))
 
         seen = set()
@@ -452,7 +434,6 @@ def fetch_generic(source):
         pass
 
     return rows
-
 
 @st.cache_data(ttl=10)
 def load_news():
@@ -477,10 +458,12 @@ def load_news():
     df = df.drop_duplicates(subset=["중복키"], keep="first")
     df = df.drop(columns=["중복키"])
 
-    df = df.sort_values("정렬일자", ascending=False)
+    # 시간 있는 기사 먼저 최신순, 시간 없는 기사는 아래쪽
+    df["정렬일자_보정"] = df["정렬일자"].fillna(datetime(1900, 1, 1))
+    df = df.sort_values("정렬일자_보정", ascending=False)
+    df = df.drop(columns=["정렬일자_보정"])
 
     return df
-
 
 st.title("📰 뉴스 터미널")
 st.caption("10초 자동갱신 | 제목 클릭 시 원문 이동")
@@ -499,12 +482,16 @@ col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 2])
 
 with col1:
     sentiment_filter = st.selectbox("감성", ["전체"] + sorted(df["감성"].unique().tolist()))
+
 with col2:
     company_filter = st.selectbox("회사명", ["전체"] + sorted(df["회사명"].unique().tolist()))
+
 with col3:
     theme_filter = st.selectbox("테마", ["전체"] + sorted(df["테마"].unique().tolist()))
+
 with col4:
     media_filter = st.selectbox("매체", ["전체"] + sorted(df["매체"].unique().tolist()))
+
 with col5:
     search = st.text_input("검색")
 
@@ -535,9 +522,11 @@ st.subheader(f"전체 뉴스 {len(filtered)}개")
 with st.expander("매체별 최신 시간 / 수집 개수 확인"):
     check = (
         df.groupby("매체")
-        .agg(최신=("정렬일자", "max"), 개수=("제목", "count"))
+        .agg(
+            최신=("정렬일자", "max"),
+            개수=("제목", "count")
+        )
         .reset_index()
-        .sort_values("최신", ascending=False)
     )
     check["최신"] = check["최신"].apply(display_dt)
     st.dataframe(check, use_container_width=True, hide_index=True)
@@ -594,7 +583,7 @@ table_html = f"""
     background: #f8f9fa;
 }}
 .news-table .title {{
-    width: 74%;
+    width: 70%;
     font-weight: 600;
 }}
 .news-table .title a {{
@@ -615,10 +604,10 @@ table_html = f"""
     width: 68px;
 }}
 .news-table .media {{
-    width: 80px;
+    width: 90px;
 }}
 .news-table .date {{
-    width: 66px;
+    width: 105px;
 }}
 </style>
 
