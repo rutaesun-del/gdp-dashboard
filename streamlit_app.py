@@ -15,16 +15,16 @@ st.set_page_config(page_title="뉴스 터미널", layout="wide")
 st_autorefresh(interval=10000, key="refresh")
 
 KST = timezone(timedelta(hours=9))
-DB_PATH = "news_terminal_FINAL_VERIFIED_TIME.db"
+DB_PATH = "news_terminal_media_detail_final.db"
 
 KEEP_HOURS = 24
 TIMEOUT = 5
 ARTICLE_TIMEOUT = 4
 MAX_WORKERS = 10
+MAX_LINKS_PER_SOURCE = 80
 
 NAVER_FINANCE_PAGES = 10
 NAVER_NEWS_PAGES = 3
-MAX_LINKS_PER_SOURCE = 80
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
@@ -177,10 +177,8 @@ def parse_rss_dt(x):
             dt = datetime.fromisoformat(s)
         else:
             dt = parsedate_to_datetime(s)
-
         if dt.tzinfo:
             dt = dt.astimezone(KST)
-
         return dt.replace(tzinfo=None)
     except Exception:
         return None
@@ -225,12 +223,11 @@ def parse_text_dt(text):
 def is_recent_dt(dt):
     if not dt:
         return False
-
     n = now_dt()
     return n - timedelta(hours=KEEP_HOURS) <= dt <= n + timedelta(minutes=10)
 
 
-def fetch_article_time(link):
+def fetch_article_time(link, media):
     try:
         res = requests.get(link, headers=HEADERS, timeout=ARTICLE_TIMEOUT)
         res.encoding = res.apparent_encoding
@@ -238,7 +235,28 @@ def fetch_article_time(link):
 
         candidates = []
 
-        meta_keys = [
+        MEDIA_SELECTORS = {
+            "네이버뉴스": [".media_end_head_info_datestamp_time", "span._ARTICLE_DATE_TIME"],
+            "네이버금융": [".articleInfo .date", ".article_info .date", ".date"],
+            "다음금융": [".num_date", ".txt_date", ".info_view .num_date"],
+            "한국경제": [".txt-date", ".article-timestamp", ".date"],
+            "한국경제-증권": [".txt-date", ".article-timestamp", ".date"],
+            "매일경제": [".registration", ".time_area", ".news_write_info_group"],
+            "서울경제": [".article_info", ".view_time", ".date"],
+            "이데일리": [".news_dates", ".dates", ".date"],
+            "머니투데이": [".date", ".info", ".article_info"],
+            "아시아경제": [".user_info", ".view_info", ".date"],
+            "파이낸셜뉴스": [".byline", ".date", ".info"],
+            "조선비즈": ["time", ".date", ".article-date"],
+            "전자신문": [".article_date", ".date", ".info"],
+            "ZDNet": [".news_info", ".date", "time"],
+            "디지털데일리": [".article_info", ".date", ".view_info"],
+            "연합뉴스": [".update-time", ".txt-time", ".date"],
+            "뉴스1": [".date", ".time", ".article_info"],
+            "한국일보": [".date", ".view_info", "time"],
+        }
+
+        for attr in [
             {"property": "article:published_time"},
             {"property": "og:regDate"},
             {"property": "og:article:published_time"},
@@ -249,33 +267,23 @@ def fetch_article_time(link):
             {"name": "Date"},
             {"name": "datePublished"},
             {"itemprop": "datePublished"},
-        ]
-
-        for attr in meta_keys:
+        ]:
             tag = soup.find("meta", attr)
             if tag and tag.get("content"):
                 candidates.append(tag.get("content"))
+
+        for selector in MEDIA_SELECTORS.get(media, []):
+            for tag in soup.select(selector):
+                if tag.get("datetime"):
+                    candidates.append(tag.get("datetime"))
+                candidates.append(tag.get_text(" "))
 
         for t in soup.find_all("time"):
             if t.get("datetime"):
                 candidates.append(t.get("datetime"))
             candidates.append(t.get_text(" "))
 
-        for selector in [
-            ".media_end_head_info_datestamp_time",
-            ".article_info .date",
-            ".date",
-            ".time",
-            ".txt_date",
-            ".num_date",
-            ".article-date",
-            ".view_time",
-            ".news_date",
-        ]:
-            for tag in soup.select(selector):
-                candidates.append(tag.get_text(" "))
-
-        candidates.append(soup.get_text(" ", strip=True)[:5000])
+        candidates.append(soup.get_text(" ", strip=True)[:4000])
 
         for c in candidates:
             dt = parse_rss_dt(c) or parse_text_dt(c)
@@ -299,6 +307,11 @@ def clean_title_tail(title):
     return clean_text(title)
 
 
+def is_stock_related(title):
+    t = title.lower()
+    return any(w.lower() in t for w in STOCK_KEYWORDS)
+
+
 def valid_title(title):
     title = clean_text(title)
 
@@ -306,9 +319,6 @@ def valid_title(title):
         return False
 
     if any(w.lower() in title.lower() for w in BAD_TITLE_WORDS):
-        return False
-
-    if not any(w.lower() in title.lower() for w in STOCK_KEYWORDS):
         return False
 
     if re.match(r"^\d+\s*위[, ]", title):
@@ -323,7 +333,6 @@ def valid_title(title):
 def detect_sentiment(title):
     pos = sum(w in title for w in POSITIVE)
     neg = sum(w in title for w in NEGATIVE)
-
     if pos > neg:
         return "🔵 긍정"
     if neg > pos:
@@ -333,26 +342,21 @@ def detect_sentiment(title):
 
 def detect_company(title):
     found = []
-
     for c, words in COMPANY_RULES.items():
         if any(w.lower() in title.lower() for w in words):
             found.append(c)
-
     if "HBM" in title:
         found += ["삼성전자", "SK하이닉스", "한미반도체"]
     if "PCB" in title:
         found += ["이수페타시스", "대덕전자", "티엘비"]
-
     return ", ".join(dict.fromkeys(found)) if found else "미분류"
 
 
 def detect_theme(title):
     found = []
-
     for t, words in THEME_RULES.items():
         if any(w.lower() in title.lower() for w in words):
             found.append(t)
-
     return ", ".join(dict.fromkeys(found)) if found else "기타"
 
 
@@ -363,7 +367,7 @@ def make_row(title, link, media, dt):
         return None
 
     if not is_recent_dt(dt):
-        dt = fetch_article_time(link)
+        dt = fetch_article_time(link, media)
 
     if not is_recent_dt(dt):
         return None
@@ -380,6 +384,7 @@ def make_row(title, link, media, dt):
         "display_dt": display_dt(dt),
         "sort_dt": dt,
         "sort_ts": dt.timestamp(),
+        "stock_related": 1 if is_stock_related(title) else 0,
         "dedupe_key": normalize_title_for_dedupe(title),
         "link": link,
         "inserted_at": collected_at,
@@ -500,7 +505,6 @@ def fetch_naver_news(source):
     for page in range(1, NAVER_NEWS_PAGES + 1):
         try:
             url = f"https://news.naver.com/main/list.naver?mode=LSD&mid=shm&sid1=101&page={page}&_ts={int(datetime.now().timestamp())}"
-
             res = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
             res.encoding = "euc-kr"
             soup = BeautifulSoup(res.text, "lxml")
@@ -611,6 +615,7 @@ def init_db():
         display_dt TEXT,
         sort_dt TEXT,
         sort_ts REAL,
+        stock_related INTEGER,
         dedupe_key TEXT,
         link TEXT UNIQUE,
         inserted_at TEXT
@@ -626,7 +631,7 @@ def save_rows(rows):
 
     for r in rows:
         cur.execute("""
-        INSERT INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO news VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(link) DO UPDATE SET
             title=excluded.title,
             display_title=excluded.display_title,
@@ -637,12 +642,13 @@ def save_rows(rows):
             display_dt=excluded.display_dt,
             sort_dt=excluded.sort_dt,
             sort_ts=excluded.sort_ts,
+            stock_related=excluded.stock_related,
             dedupe_key=excluded.dedupe_key,
             inserted_at=excluded.inserted_at
         """, (
             r["title"], r["display_title"], r["sentiment"], r["company"], r["theme"],
             r["media"], r["display_dt"], r["sort_dt"].isoformat(),
-            float(r["sort_ts"]), r["dedupe_key"], r["link"], r["inserted_at"].isoformat()
+            float(r["sort_ts"]), int(r["stock_related"]), r["dedupe_key"], r["link"], r["inserted_at"].isoformat()
         ))
 
     con.commit()
@@ -667,7 +673,6 @@ def load_db():
         return df
 
     df["sort_ts"] = pd.to_numeric(df["sort_ts"], errors="coerce")
-
     df = (
         df.dropna(subset=["sort_ts"])
           .sort_values("sort_ts", ascending=False, kind="mergesort")
@@ -687,7 +692,7 @@ def refresh():
 
 
 st.title("📰 뉴스 터미널")
-st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 기사만 | 원문 기사시간 기준 내림차순 | 주식관련 필터 | 중복 제거")
+st.caption(f"10초 자동갱신 | 최근 {KEEP_HOURS}시간 기사만 | 원문 기사시간 기준 내림차순 | 중복 제거")
 
 if st.button("DB 완전 초기화 / 강제 새로고침"):
     st.cache_data.clear()
@@ -701,21 +706,30 @@ if df.empty:
     st.warning("뉴스가 없습니다.")
     st.stop()
 
-c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 2])
+c0, c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1, 2])
+
+with c0:
+    stock_filter = st.selectbox("범위", ["전체", "주식관련만"])
 
 with c1:
     sentiment_filter = st.selectbox("감성", ["전체", "🔵 긍정", "⚪ 중립", "🔴 부정"])
+
 with c2:
     company_filter = st.selectbox("회사명", ["전체"] + sorted(df["company"].dropna().unique().tolist()))
+
 with c3:
     theme_filter = st.selectbox("테마", ["전체"] + sorted(df["theme"].dropna().unique().tolist()))
+
 with c4:
     media_filter = st.selectbox("매체", ["전체"] + sorted(df["media"].dropna().unique().tolist()))
+
 with c5:
     search = st.text_input("검색")
 
 filtered = df.copy()
 
+if stock_filter == "주식관련만":
+    filtered = filtered[filtered["stock_related"] == 1]
 if sentiment_filter != "전체":
     filtered = filtered[filtered["sentiment"] == sentiment_filter]
 if company_filter != "전체":
